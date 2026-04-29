@@ -543,13 +543,26 @@ BUSINESS MODEL:
 - Key statuses: Researching → Contacted → Negotiating → Offer Pending → Under Contract
 
 CRM ACTIONS:
-To update a property in the CRM, output a command in this exact format on its own line:
+To update or create a property in the CRM, output a command in this exact format on its own line:
+
+Update status:
 [CRM:update_status:id=PROPERTY_ID&value=NEW_STATUS]
+
+Update any field:
 [CRM:update_field:id=PROPERTY_ID&field=FIELD_NAME&value=VALUE]
+
+Add a note (appends, does not overwrite):
 [CRM:add_note:id=PROPERTY_ID&value=NOTE_TEXT]
+
+Log an activity:
 [CRM:insert_activity:id=PROPERTY_ID&entry=ACTIVITY_TEXT]
 
-Always confirm what action you're taking before outputting a CRM command.
+Create a new property (use individual field params — a unique ID is auto-generated):
+[CRM:insert_property:first_name=James&last_name=Whitfield&phone=918-441-2987&address=44 Timber Ridge Rd&city=Heavener&state=OK&zip=74937&county=Le Flore&apn=0000-14-05S-25E-2-008-00&acres=8.5&source=Cold SMS&status=Call Needed]
+
+Available fields for insert_property: first_name, last_name, phone, email, address, city, county, state, zip, apn, acres, source, status, seller_notes, arv, mao, offer_amount, offer_status, seller2_name, seller2_email
+
+Always confirm what action you're taking before outputting a CRM command. Only include fields that were provided — omit empty ones.
 
 CURRENT PROPERTIES IN CRM (${properties.length} total):
 ${JSON.stringify(properties, null, 2)}`;
