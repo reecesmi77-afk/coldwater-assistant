@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coldwater Assistant</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #21262d;
+      --text: #e6edf3;
+      --text-secondary: #7d8590;
+      --teal: #34d399;
+      --teal-dim: rgba(52, 211, 153, 0.15);
+      --teal-border: rgba(52, 211, 153, 0.4);
+      --amber: #f59e0b;
+      --amber-dim: rgba(245, 158, 11, 0.12);
+      --red: #f87171;
+      --red-dim: rgba(248, 113, 113, 0.15);
+      --font: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ── */
+    #header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    #header-icon {
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    #header-text h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--teal);
+      letter-spacing: 0.01em;
+    }
+
+    #header-text p {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 1px;
+    }
+
+    #header-dot {
+      margin-left: auto;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--teal);
+      box-shadow: 0 0 6px var(--teal);
+    }
+
+    /* ── Status bar ── */
+    #status-bar {
+      height: 34px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      font-size: 12px;
+      font-weight: 500;
+      transition: opacity 0.2s;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #status-bar.visible {
+      opacity: 1;
+    }
+
+    #status-bar.loading-crm {
+      background: var(--amber-dim);
+      color: var(--amber);
+      border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+    }
+
+    #status-bar.thinking {
+      background: var(--teal-dim);
+      color: var(--teal);
+      border-bottom: 1px solid rgba(52, 211, 153, 0.2);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-right: 8px;
+      background: currentColor;
+    }
+
+    .thinking .status-dot {
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+
+    /* ── Chat area ── */
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+
+    #chat::-webkit-scrollbar {
+      width: 6px;
+    }
+    #chat::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    #chat::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    /* ── Messages ── */
+    .message-wrapper {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .message-wrapper.user {
+      align-items: flex-end;
+    }
+
+    .message-wrapper.assistant {
+      align-items: flex-start;
+    }
+
+    .message-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--teal);
+      margin-bottom: 4px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .bubble {
+      max-width: 80%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      position: relative;
+      word-break: break-word;
+    }
+
+    .bubble.user {
+      background: var(--teal-dim);
+      border: 1px solid var(--teal-border);
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble.assistant {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+
+    .bubble-content {
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 14px;
+    }
+
+    .bubble-timestamp {
+      font-size: 11px;
+      color: var(--text-secondary);
+      margin-top: 5px;
+    }
+
+    .message-wrapper.user .bubble-timestamp {
+      text-align: right;
+    }
+
+    /* CRM command text replacement */
+    .crm-executed-note {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+
+    /* CRM badge */
+    .crm-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 8px;
+      border-radius: 20px;
+      margin-top: 6px;
+    }
+
+    .crm-badge.success {
+      background: rgba(52, 211, 153, 0.12);
+      color: var(--teal);
+      border: 1px solid rgba(52, 211, 153, 0.25);
+    }
+
+    .crm-badge.error {
+      background: var(--red-dim);
+      color: var(--red);
+      border: 1px solid rgba(248, 113, 113, 0.25);
+    }
+
+    /* ── Input area ── */
+    #input-area {
+      flex-shrink: 0;
+      padding: 12px 20px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    #input-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 8px 8px 8px 14px;
+      transition: border-color 0.2s;
+    }
+
+    #input-row:focus-within {
+      border-color: rgba(52, 211, 153, 0.5);
+    }
+
+    #user-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.6;
+      resize: none;
+      min-height: 24px;
+      max-height: 96px;
+      overflow-y: auto;
+      padding: 0;
+    }
+
+    #user-input::placeholder {
+      color: var(--text-secondary);
+    }
+
+    #user-input::-webkit-scrollbar {
+      width: 4px;
+    }
+    #user-input::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 2px;
+    }
+
+    .input-btn {
+      flex-shrink: 0;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: all 0.15s;
+      line-height: 1;
+    }
+
+    .input-btn:hover {
+      border-color: var(--teal-border);
+      color: var(--teal);
+      background: var(--teal-dim);
+    }
+
+    #mic-btn.recording {
+      border-color: rgba(248, 113, 113, 0.5);
+      background: var(--red-dim);
+      color: var(--red);
+      animation: mic-pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes mic-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.3); }
+      50% { box-shadow: 0 0 0 5px rgba(248, 113, 113, 0); }
+    }
+
+    #send-btn {
+      width: auto;
+      padding: 0 14px;
+      gap: 5px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--teal);
+      border-color: var(--teal-border);
+      background: var(--teal-dim);
+    }
+
+    #send-btn:hover {
+      background: rgba(52, 211, 153, 0.25);
+      color: var(--teal);
+    }
+
+    #send-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    #send-btn:disabled:hover {
+      background: var(--teal-dim);
+    }
+
+    .send-arrow {
+      font-size: 14px;
+    }
+
+    #input-footer {
+      margin-top: 8px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      padding: 0 2px;
+    }
+
+    /* ── Welcome state ── */
+    #welcome {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 12px;
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-secondary);
+    }
+
+    #welcome .welcome-icon {
+      font-size: 48px;
+      margin-bottom: 4px;
+    }
+
+    #welcome h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    #welcome p {
+      font-size: 13px;
+      max-width: 400px;
+      line-height: 1.7;
+    }
+
+    .welcome-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 8px;
+    }
+
+    .welcome-chip {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .welcome-chip:hover {
+      border-color: var(--teal-border);
+      color: var(--teal);
+      background: var(--teal-dim);
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Header -->
+  <header id="header">
+    <div id="header-icon">🏡</div>
+    <div id="header-text">
+      <h1>Coldwater Assistant</h1>
+      <p>Powered by Claude · Coldwater Property Group</p>
+    </div>
+    <div id="header-dot"></div>
+  </header>
+
+  <!-- Status bar -->
+  <div id="status-bar">
+    <div class="status-dot"></div>
+    <span id="status-text"></span>
+  </div>
+
+  <!-- Chat area -->
+  <div id="chat">
+    <div id="welcome">
+      <div class="welcome-icon">🏡</div>
+      <h2>How can I help you today?</h2>
+      <p>Ask me about properties, run comps, update statuses, add notes, or anything else about the Coldwater CRM.</p>
+      <div class="welcome-chips">
+        <div class="welcome-chip" onclick="setInput('Show me all properties currently being researched')">Show researching properties</div>
+        <div class="welcome-chip" onclick="setInput('What properties are under contract?')">Under contract properties</div>
+        <div class="welcome-chip" onclick="setInput('Calculate MAO for a property with ARV of $80,000')">Calculate MAO</div>
+        <div class="welcome-chip" onclick="setInput('Summarize all active leads')">Summarize active leads</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input area -->
+  <div id="input-area">
+    <div id="input-row">
+      <textarea
+        id="user-input"
+        rows="1"
+        placeholder="Ask about properties, run comps, update statuses..."
+      ></textarea>
+      <button class="input-btn" id="mic-btn" title="Voice input" onclick="toggleMic()">🎤</button>
+      <button class="input-btn" id="send-btn" title="Send" onclick="sendMessage()">
+        <span>Send</span>
+        <span class="send-arrow">↑</span>
+      </button>
+    </div>
+    <div id="input-footer">Enter to send · Shift+Enter for new line</div>
+  </div>
+</div>
+
+<script>
+  // ── Constants ──
+  const SUPABASE_URL = 'https://angkabritbihpstpsafr.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFuZ2thYnJpdGJpaHBzdHBzYWZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NjI4NzIsImV4cCI6MjA5MzAzODg3Mn0.beVmMy2uZh_Nl6KDYkR9U0fuIfbZL4kBP4v7_EEzO14';
+  const CRM_ACTION_URL = 'https://dealflow-crm.netlify.app/.netlify/functions/crm-action';
+  const CRM_BRIDGE_KEY = 'ColdwaterBridge2026';
+
+  // ── State ──
+  let messages = [];
+  let isLoading = false;
+  let recognition = null;
+  let isRecording = false;
+
+  // ── DOM refs ──
+  const chatEl = document.getElementById('chat');
+  const inputEl = document.getElementById('user-input');
+  const sendBtn = document.getElementById('send-btn');
+  const micBtn = document.getElementById('mic-btn');
+  const statusBar = document.getElementById('status-bar');
+  const statusText = document.getElementById('status-text');
+  const welcomeEl = document.getElementById('welcome');
+
+  // ── Auto-resize textarea ──
+  inputEl.addEventListener('input', () => {
+    inputEl.style.height = 'auto';
+    const lineHeight = 22;
+    const maxLines = 4;
+    const newHeight = Math.min(inputEl.scrollHeight, lineHeight * maxLines + 8);
+    inputEl.style.height = newHeight + 'px';
+  });
+
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!isLoading) sendMessage();
+    }
+  });
+
+  // ── Status bar helpers ──
+  function showStatus(type, text) {
+    statusBar.className = 'visible ' + type;
+    statusText.textContent = text;
+  }
+
+  function hideStatus() {
+    statusBar.className = '';
+    statusText.textContent = '';
+  }
+
+  // ── Supabase fetch ──
+  async function fetchProperties() {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/properties?select=*&order=created_at.desc`, {
+      headers: {
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      }
+    });
+    return await r.json();
+  }
+
+  // ── System prompt builder ──
+  function buildSystemPrompt(properties) {
+    return `You are the Coldwater Assistant, an AI assistant for Coldwater Property Group run by William Smith.
+
+BUSINESS MODEL:
+- We buy rural vacant land at 40-50% of retail value (Maximum Allowable Offer = ARV × 0.45 - repair costs)
+- We seller finance parcels to buyers who can't get traditional financing
+- Our note buyer is Eric at Parcel Funders — he buys our performing notes
+- We source leads via cold SMS, direct mail, MLS, and lead gen calls
+- Key statuses: Researching → Contacted → Negotiating → Offer Pending → Under Contract
+
+CRM ACTIONS:
+To update a property in the CRM, output a command in this exact format on its own line:
+[CRM:update_status:id=PROPERTY_ID&value=NEW_STATUS]
+[CRM:update_field:id=PROPERTY_ID&field=FIELD_NAME&value=VALUE]
+[CRM:add_note:id=PROPERTY_ID&value=NOTE_TEXT]
+[CRM:insert_activity:id=PROPERTY_ID&entry=ACTIVITY_TEXT]
+
+Always confirm what action you're taking before outputting a CRM command.
+
+CURRENT PROPERTIES IN CRM (${properties.length} total):
+${JSON.stringify(properties, null, 2)}`;
+  }
+
+  // ── Format timestamp ──
+  function formatTime(date) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // ── Render message content (strip CRM commands, render newlines) ──
+  function renderContent(text) {
+    // Replace CRM commands with a subtle note
+    const cleaned = text.replace(/\[CRM:[a-z_]+:[^\]]+\]/g, '<span class="crm-executed-note">[CRM command executed]</span>');
+    // Render newlines as <br>
+    return cleaned.replace(/\n/g, '<br>');
+  }
+
+  // ── Add message bubble to UI ──
+  function addMessage(role, text) {
+    if (welcomeEl) welcomeEl.style.display = 'none';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = `message-wrapper ${role}`;
+
+    if (role === 'assistant') {
+      const label = document.createElement('div');
+      label.className = 'message-label';
+      label.textContent = 'Coldwater Assistant';
+      wrapper.appendChild(label);
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = `bubble ${role}`;
+
+    const content = document.createElement('div');
+    content.className = 'bubble-content';
+    content.innerHTML = renderContent(text);
+    bubble.appendChild(content);
+
+    const timestamp = document.createElement('div');
+    timestamp.className = 'bubble-timestamp';
+    timestamp.textContent = formatTime(new Date());
+    bubble.appendChild(timestamp);
+
+    wrapper.appendChild(bubble);
+    chatEl.appendChild(wrapper);
+    chatEl.scrollTop = chatEl.scrollHeight;
+
+    return { wrapper, bubble, content };
+  }
+
+  // ── Show CRM badge on the relevant message bubble ──
+  function showCrmBadge(commandText, result) {
+    // Find the most recent assistant bubble
+    const allBubbles = chatEl.querySelectorAll('.bubble.assistant');
+    if (!allBubbles.length) return;
+    const lastBubble = allBubbles[allBubbles.length - 1];
+
+    const badge = document.createElement('div');
+    badge.className = 'crm-badge ' + (result.error ? 'error' : 'success');
+
+    if (result.error) {
+      badge.textContent = `❌ CRM Error: ${result.error}`;
+    } else {
+      const label = result.data?.status || result.data?.id || 'Updated';
+      badge.textContent = `✅ CRM: ${label}`;
+    }
+
+    lastBubble.appendChild(badge);
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  // ── CRM command detection ──
+  function detectAndRunCrmCommands(text) {
+    const regex = /\[CRM:([a-z_]+):([^\]]+)\]/g;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const action = match[1];
+      const params = match[2];
+      const url = `${CRM_ACTION_URL}?key=${CRM_BRIDGE_KEY}&action=${action}&${params}`;
+      fetch(url)
+        .then(r => r.json())
+        .then(result => showCrmBadge(match[0], result))
+        .catch(err => console.log('CRM action failed:', err));
+    }
+  }
+
+  // ── Main send function ──
+  async function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text || isLoading) return;
+
+    isLoading = true;
+    sendBtn.disabled = true;
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+
+    // Add user bubble to UI
+    addMessage('user', text);
+
+    // Step 1: Load CRM data
+    showStatus('loading-crm', 'Loading CRM data...');
+    let properties = [];
+    try {
+      properties = await fetchProperties();
+      if (!Array.isArray(properties)) properties = [];
+    } catch (e) {
+      console.warn('Failed to fetch properties:', e);
+    }
+
+    // Step 2: Build system prompt + add to messages
+    showStatus('thinking', 'Thinking...');
+    const system = buildSystemPrompt(properties);
+
+    messages.push({ role: 'user', content: text });
+
+    // Step 3: Call Claude via Netlify function
+    let responseText = '';
+    try {
+      const res = await fetch('/.netlify/functions/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages, system }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        responseText = `Sorry, there was an error: ${data.error}`;
+      } else {
+        responseText = data.text || '(No response)';
+      }
+    } catch (e) {
+      responseText = `Network error: ${e.message}`;
+    }
+
+    hideStatus();
+
+    // Add assistant message to state + UI
+    messages.push({ role: 'assistant', content: responseText });
+    addMessage('assistant', responseText);
+
+    // Run any CRM commands found in response
+    detectAndRunCrmCommands(responseText);
+
+    isLoading = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+
+  // ── Welcome chip helper ──
+  function setInput(text) {
+    inputEl.value = text;
+    inputEl.dispatchEvent(new Event('input'));
+    inputEl.focus();
+  }
+
+  // ── Voice input ──
+  function toggleMic() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert('Voice input is not supported in this browser. Try Chrome.');
+      return;
+    }
+
+    if (isRecording) {
+      recognition.stop();
+      return;
+    }
+
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      isRecording = true;
+      micBtn.classList.add('recording');
+      micBtn.title = 'Stop recording';
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      inputEl.value = transcript;
+      inputEl.dispatchEvent(new Event('input'));
+    };
+
+    recognition.onerror = (event) => {
+      console.warn('Speech recognition error:', event.error);
+    };
+
+    recognition.onend = () => {
+      isRecording = false;
+      micBtn.classList.remove('recording');
+      micBtn.title = 'Voice input';
+    };
+
+    recognition.start();
+  }
+
+  // ── Initial focus ──
+  inputEl.focus();
+</script>
+</body>
+</html>
