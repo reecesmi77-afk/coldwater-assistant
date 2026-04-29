@@ -356,6 +356,58 @@
       font-size: 14px;
     }
 
+    #attachment-preview {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px 0;
+      flex-wrap: wrap;
+    }
+
+    #attachment-preview.visible {
+      display: flex;
+    }
+
+    .attachment-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--surface);
+      border: 1px solid var(--teal-border);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--teal);
+      max-width: 260px;
+    }
+
+    .attachment-badge span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .attachment-thumb {
+      width: 28px;
+      height: 28px;
+      object-fit: cover;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .attachment-remove {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 0;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .attachment-remove:hover { color: var(--red); }
+
     #input-footer {
       margin-top: 8px;
       font-size: 11px;
@@ -455,12 +507,15 @@
 
   <!-- Input area -->
   <div id="input-area">
+    <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none" onchange="handleFileSelect(event)">
+    <div id="attachment-preview"></div>
     <div id="input-row">
       <textarea
         id="user-input"
         rows="1"
         placeholder="Ask about properties, run comps, update statuses..."
       ></textarea>
+      <button class="input-btn" id="attach-btn" title="Attach image or PDF" onclick="document.getElementById('file-input').click()">📎</button>
       <button class="input-btn" id="mic-btn" title="Voice input" onclick="toggleMic()">🎤</button>
       <button class="input-btn" id="send-btn" title="Send" onclick="sendMessage()">
         <span>Send</span>
@@ -483,6 +538,7 @@
   let isLoading = false;
   let recognition = null;
   let isRecording = false;
+  let pendingAttachment = null; // { base64, mediaType, fileName }
 
   // ── DOM refs ──
   const chatEl = document.getElementById('chat');
@@ -651,18 +707,80 @@ ${JSON.stringify(properties, null, 2)}`;
     }
   }
 
+  // ── File attachment ──
+  function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    // Reset so the same file can be re-selected if removed
+    event.target.value = '';
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result; // data:mediaType;base64,xxxx
+      const base64 = dataUrl.split(',')[1];
+      const mediaType = file.type; // e.g. image/jpeg, application/pdf
+      pendingAttachment = { base64, mediaType, fileName: file.name };
+      showAttachmentPreview(file, dataUrl, mediaType);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function showAttachmentPreview(file, dataUrl, mediaType) {
+    const previewEl = document.getElementById('attachment-preview');
+    previewEl.innerHTML = '';
+    previewEl.classList.add('visible');
+
+    const badge = document.createElement('div');
+    badge.className = 'attachment-badge';
+
+    if (mediaType.startsWith('image/')) {
+      const img = document.createElement('img');
+      img.src = dataUrl;
+      img.className = 'attachment-thumb';
+      badge.appendChild(img);
+    } else {
+      const icon = document.createElement('span');
+      icon.textContent = '📄';
+      badge.appendChild(icon);
+    }
+
+    const name = document.createElement('span');
+    name.textContent = file.name;
+    badge.appendChild(name);
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'attachment-remove';
+    removeBtn.title = 'Remove attachment';
+    removeBtn.textContent = '✕';
+    removeBtn.onclick = clearAttachment;
+    badge.appendChild(removeBtn);
+
+    previewEl.appendChild(badge);
+  }
+
+  function clearAttachment() {
+    pendingAttachment = null;
+    const previewEl = document.getElementById('attachment-preview');
+    previewEl.innerHTML = '';
+    previewEl.classList.remove('visible');
+  }
+
   // ── Main send function ──
   async function sendMessage() {
     const text = inputEl.value.trim();
-    if (!text || isLoading) return;
+    if ((!text && !pendingAttachment) || isLoading) return;
 
     isLoading = true;
     sendBtn.disabled = true;
     inputEl.value = '';
     inputEl.style.height = 'auto';
 
+    // Capture and clear attachment before async work
+    const attachment = pendingAttachment;
+    clearAttachment();
+
     // Add user bubble to UI
-    addMessage('user', text);
+    addMessage('user', text || (attachment ? `[Attached: ${attachment.fileName}]` : ''));
 
     // Step 1: Load CRM data
     showStatus('loading-crm', 'Loading CRM data...');
@@ -674,11 +792,26 @@ ${JSON.stringify(properties, null, 2)}`;
       console.warn('Failed to fetch properties:', e);
     }
 
-    // Step 2: Build system prompt + add to messages
+    // Step 2: Build system prompt
     showStatus('thinking', 'Thinking...');
     const system = buildSystemPrompt(properties);
 
-    messages.push({ role: 'user', content: text });
+    // Build content for this message — text + optional file block
+    let userContent;
+    if (attachment) {
+      const isImage = attachment.mediaType.startsWith('image/');
+      const fileBlock = isImage
+        ? { type: 'image', source: { type: 'base64', media_type: attachment.mediaType, data: attachment.base64 } }
+        : { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: attachment.base64 } };
+      userContent = [
+        fileBlock,
+        { type: 'text', text: text || 'Please review the attached file.' },
+      ];
+    } else {
+      userContent = text;
+    }
+
+    messages.push({ role: 'user', content: userContent });
 
     // Step 3: Call Claude via Netlify function
     let responseText = '';
