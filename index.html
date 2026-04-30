@@ -1257,37 +1257,68 @@ ${JSON.stringify(properties.map(p => ({
 
     messages.push({ role: 'user', content: userContent });
 
-    let responseText = '';
+    // Create the assistant bubble immediately — we'll stream text into it
+    const { content: streamTarget } = addMessage('assistant', '');
+    let fullText = '';
+
     try {
       const res = await fetch('/.netlify/functions/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: messages.slice(-6), system }),
+        body: JSON.stringify({ messages: messages.slice(-8), system }),
       });
-      // Read as text first — never call .json() directly on a potentially HTML response
-      const raw = await res.text();
-      let data = null;
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        console.error('[chat] Non-JSON response (HTTP', res.status, '):', raw.slice(0, 300));
-        responseText = `Sorry, the assistant is temporarily unavailable (HTTP ${res.status}). Please try again in a moment.`;
+
+      const ct = res.headers.get('content-type') || '';
+
+      if (ct.includes('application/json')) {
+        // Error JSON returned by the function before streaming started
+        const raw = await res.text();
+        try {
+          const d = JSON.parse(raw);
+          fullText = d.error
+            ? `Error: ${d.message || d.error}`
+            : (d.text || '(No response)');
+        } catch {
+          fullText = `Unexpected response (HTTP ${res.status}): ${raw.slice(0, 200)}`;
+        }
+        hideStatus();
+        streamTarget.innerHTML = renderMarkdown(fullText);
+
+      } else if (res.body) {
+        // Streaming plain-text response — hide status as first chunk arrives
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let statusHidden = false;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!statusHidden) { hideStatus(); statusHidden = true; }
+          fullText += decoder.decode(value, { stream: true });
+          // Show raw text while streaming for performance, render markdown on finish
+          streamTarget.textContent = fullText;
+          chatEl.scrollTop = chatEl.scrollHeight;
+        }
+        // Final pass: full markdown render
+        streamTarget.innerHTML = renderMarkdown(fullText);
+        chatEl.scrollTop = chatEl.scrollHeight;
+        if (!statusHidden) hideStatus();
+
+      } else {
+        hideStatus();
+        fullText = `Unexpected response (HTTP ${res.status})`;
+        streamTarget.innerHTML = renderMarkdown(fullText);
       }
-      if (data !== null) {
-        responseText = data.error
-          ? `Sorry, there was an error: ${data.message || data.error}`
-          : (data.text || '(No response)');
-      }
+
     } catch (e) {
-      console.error('[chat] Fetch failed:', e.message);
-      responseText = 'Sorry, could not reach the assistant. Check your connection and try again.';
+      hideStatus();
+      console.error('[chat] Stream error:', e.message);
+      fullText = `Error: ${e.message}`;
+      streamTarget.innerHTML = renderMarkdown(fullText);
     }
 
-    hideStatus();
-    messages.push({ role: 'assistant', content: responseText });
-    addMessage('assistant', responseText);
+    messages.push({ role: 'assistant', content: fullText });
     saveCurrentConv();
-    detectAndRunCrmCommands(responseText);
+    detectAndRunCrmCommands(fullText);
 
     isLoading = false;
     sendBtn.disabled = false;
