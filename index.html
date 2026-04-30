@@ -1007,6 +1007,8 @@ Available fields for insert_property: first_name, last_name, phone, email, addre
 
 Always confirm what action you're taking before outputting a CRM command. Only include fields that were provided — omit empty ones.
 
+If your response will be long, break it into clearly numbered sections and complete each section fully before moving to the next. Never end mid-sentence.
+
 CURRENT PROPERTIES IN CRM (${properties.length} total):
 ${JSON.stringify(properties.map(p => ({
   id: p.id,
@@ -1257,68 +1259,34 @@ ${JSON.stringify(properties.map(p => ({
 
     messages.push({ role: 'user', content: userContent });
 
-    // Create the assistant bubble immediately — we'll stream text into it
-    const { content: streamTarget } = addMessage('assistant', '');
-    let fullText = '';
-
+    let responseText = '';
     try {
       const res = await fetch('/.netlify/functions/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: messages.slice(-8), system }),
       });
-
-      const ct = res.headers.get('content-type') || '';
-
-      if (ct.includes('application/json')) {
-        // Error JSON returned by the function before streaming started
-        const raw = await res.text();
-        try {
-          const d = JSON.parse(raw);
-          fullText = d.error
-            ? `Error: ${d.message || d.error}`
-            : (d.text || '(No response)');
-        } catch {
-          fullText = `Unexpected response (HTTP ${res.status}): ${raw.slice(0, 200)}`;
-        }
-        hideStatus();
-        streamTarget.innerHTML = renderMarkdown(fullText);
-
-      } else if (res.body) {
-        // Streaming plain-text response — hide status as first chunk arrives
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let statusHidden = false;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (!statusHidden) { hideStatus(); statusHidden = true; }
-          fullText += decoder.decode(value, { stream: true });
-          // Show raw text while streaming for performance, render markdown on finish
-          streamTarget.textContent = fullText;
-          chatEl.scrollTop = chatEl.scrollHeight;
-        }
-        // Final pass: full markdown render
-        streamTarget.innerHTML = renderMarkdown(fullText);
-        chatEl.scrollTop = chatEl.scrollHeight;
-        if (!statusHidden) hideStatus();
-
-      } else {
-        hideStatus();
-        fullText = `Unexpected response (HTTP ${res.status})`;
-        streamTarget.innerHTML = renderMarkdown(fullText);
+      // Read as text first — never call .json() directly on a potentially HTML response
+      const raw = await res.text();
+      try {
+        const data = JSON.parse(raw);
+        responseText = data.error
+          ? `Error: ${data.message || data.error}`
+          : (data.text || '(No response)');
+      } catch {
+        console.error('[chat] Non-JSON response (HTTP', res.status, '):', raw.slice(0, 300));
+        responseText = `Error: unexpected response (HTTP ${res.status}) — ${raw.slice(0, 120)}`;
       }
-
     } catch (e) {
-      hideStatus();
-      console.error('[chat] Stream error:', e.message);
-      fullText = `Error: ${e.message}`;
-      streamTarget.innerHTML = renderMarkdown(fullText);
+      console.error('[chat] Fetch failed:', e.message);
+      responseText = `Error: ${e.message}`;
     }
 
-    messages.push({ role: 'assistant', content: fullText });
+    hideStatus();
+    messages.push({ role: 'assistant', content: responseText });
+    addMessage('assistant', responseText);
     saveCurrentConv();
-    detectAndRunCrmCommands(fullText);
+    detectAndRunCrmCommands(responseText);
 
     isLoading = false;
     sendBtn.disabled = false;
