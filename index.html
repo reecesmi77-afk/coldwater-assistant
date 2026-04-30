@@ -677,6 +677,167 @@
       color: var(--text3);
     }
 
+    /* ── Knowledge Base Modal ── */
+    #kb-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 300;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 16px;
+      backdrop-filter: blur(3px);
+      overflow-y: auto;
+    }
+    #kb-modal-backdrop.open { display: flex; }
+
+    #kb-modal {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 620px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    #kb-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #kb-modal-header h3 { font-size: 16px; font-weight: 600; color: var(--text); }
+
+    .kb-close-btn {
+      background: none;
+      border: none;
+      color: var(--text3);
+      font-size: 20px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+    .kb-close-btn:hover { background: var(--surface2); color: var(--text); }
+
+    #kb-entries {
+      padding: 12px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 340px;
+      overflow-y: auto;
+    }
+    #kb-entries::-webkit-scrollbar { width: 4px; }
+    #kb-entries::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+    .kb-entry-row {
+      display: grid;
+      grid-template-columns: 130px 150px 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      background: var(--sidebar);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .kb-entry-cat  { color: var(--teal); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .kb-entry-key  { color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .kb-entry-val  { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .kb-entry-actions { display: flex; gap: 4px; }
+    .kb-entry-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 3px 6px;
+      border-radius: 5px;
+      font-size: 13px;
+      color: var(--text3);
+    }
+    .kb-entry-btn:hover { background: var(--surface2); color: var(--text); }
+    .kb-entry-btn.del:hover { color: var(--red); }
+
+    #kb-empty { padding: 20px; text-align: center; color: var(--text3); font-size: 13px; }
+
+    #kb-add-form {
+      padding: 14px 20px 18px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    #kb-add-form .kb-form-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 3px;
+    }
+
+    .kb-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .kb-field-group { display: flex; flex-direction: column; }
+
+    .kb-input {
+      background: var(--sidebar);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 7px 10px;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .kb-input:focus { border-color: var(--teal-border); }
+    .kb-input::placeholder { color: var(--text3); }
+
+    textarea.kb-input { resize: vertical; min-height: 60px; line-height: 1.5; }
+
+    .kb-form-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    .kb-btn {
+      padding: 7px 16px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .kb-btn:hover { opacity: 0.85; }
+    .kb-btn.primary { background: var(--teal); color: #0d0d0d; }
+    .kb-btn.secondary { background: var(--surface2); color: var(--text2); }
+
+    /* KB button in sidebar footer */
+    #kb-open-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      width: 100%;
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: none;
+      color: var(--text2);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      margin-bottom: 8px;
+    }
+    #kb-open-btn:hover { background: var(--teal-dim); color: var(--teal); border-color: var(--teal-border); }
+
     /* ── Responsive ── */
     @media (max-width: 640px) {
       #sidebar { display: none; }
@@ -724,9 +885,47 @@
     <div id="recent-chats"></div>
 
     <div id="sidebar-footer">
+      <button id="kb-open-btn" onclick="openKbModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        Knowledge Base
+      </button>
       <span class="model-badge">Claude Sonnet</span>
     </div>
   </aside>
+
+  <!-- Knowledge Base Modal -->
+  <div id="kb-modal-backdrop" onclick="closeKbModalOnBackdrop(event)">
+    <div id="kb-modal">
+      <div id="kb-modal-header">
+        <h3>📚 Knowledge Base</h3>
+        <button class="kb-close-btn" onclick="closeKbModal()">✕</button>
+      </div>
+      <div id="kb-entries">
+        <div id="kb-empty">Loading…</div>
+      </div>
+      <div id="kb-add-form">
+        <div class="kb-form-row">
+          <div class="kb-field-group">
+            <div class="kb-form-label">Category</div>
+            <input id="kb-f-category" class="kb-input" list="kb-cat-list" placeholder="e.g. MAO Formula" />
+            <datalist id="kb-cat-list"></datalist>
+          </div>
+          <div class="kb-field-group">
+            <div class="kb-form-label">Key</div>
+            <input id="kb-f-key" class="kb-input" placeholder="e.g. base_rate" />
+          </div>
+        </div>
+        <div class="kb-field-group">
+          <div class="kb-form-label">Value</div>
+          <textarea id="kb-f-value" class="kb-input" placeholder="Enter the value or notes…"></textarea>
+        </div>
+        <div class="kb-form-actions">
+          <button class="kb-btn secondary" onclick="clearKbForm()">Clear</button>
+          <button class="kb-btn primary" onclick="saveKbEntry()">Save Entry</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Drag-and-drop overlay -->
   <div id="drop-overlay">
@@ -974,8 +1173,182 @@
     }
   }
 
+  // ── Knowledge Base fetch ──
+  async function fetchKnowledgeBase() {
+    let r;
+    try {
+      r = await fetch(`${SUPABASE_URL}/rest/v1/knowledge_base?select=*&order=category.asc`, {
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        }
+      });
+    } catch (e) {
+      console.warn('[fetchKnowledgeBase] Network error:', e.message);
+      return [];
+    }
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      console.warn('[fetchKnowledgeBase] Non-JSON response (status', r.status, ')');
+      return [];
+    }
+    try {
+      const data = await r.json();
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      console.warn('[fetchKnowledgeBase] JSON parse error:', e.message);
+      return [];
+    }
+  }
+
+  // Format KB rows grouped by category for the system prompt
+  function formatKnowledgeBaseForPrompt(rows) {
+    if (!rows.length) return '';
+    const grouped = {};
+    rows.forEach(r => {
+      const cat = r.category || 'General';
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(`  ${r.key}: ${r.value}`);
+    });
+    const sections = Object.entries(grouped)
+      .map(([cat, items]) => `${cat}:\n${items.join('\n')}`)
+      .join('\n\n');
+    return `\nKNOWLEDGE BASE:\n${sections}`;
+  }
+
+  // ── Knowledge Base modal state ──
+  let _kbEntries = [];
+  let _kbEditingId = null;
+
+  async function openKbModal() {
+    document.getElementById('kb-modal-backdrop').classList.add('open');
+    await refreshKbEntries();
+  }
+
+  function closeKbModal() {
+    document.getElementById('kb-modal-backdrop').classList.remove('open');
+    clearKbForm();
+  }
+
+  function closeKbModalOnBackdrop(e) {
+    if (e.target === document.getElementById('kb-modal-backdrop')) closeKbModal();
+  }
+
+  async function refreshKbEntries() {
+    const container = document.getElementById('kb-entries');
+    container.innerHTML = '<div id="kb-empty">Loading…</div>';
+    _kbEntries = await fetchKnowledgeBase();
+    renderKbEntries();
+    // Update category datalist
+    const cats = [...new Set(_kbEntries.map(e => e.category).filter(Boolean))];
+    const dl = document.getElementById('kb-cat-list');
+    dl.innerHTML = cats.map(c => `<option value="${c}">`).join('');
+  }
+
+  function renderKbEntries() {
+    const container = document.getElementById('kb-entries');
+    container.innerHTML = '';
+    if (!_kbEntries.length) {
+      container.innerHTML = '<div id="kb-empty">No entries yet. Add one below.</div>';
+      return;
+    }
+    _kbEntries.forEach(entry => {
+      const row = document.createElement('div');
+      row.className = 'kb-entry-row';
+      row.innerHTML = `
+        <span class="kb-entry-cat" title="${entry.category || ''}">${entry.category || '—'}</span>
+        <span class="kb-entry-key" title="${entry.key || ''}">${entry.key || '—'}</span>
+        <span class="kb-entry-val" title="${entry.value || ''}">${entry.value || '—'}</span>
+        <div class="kb-entry-actions">
+          <button class="kb-entry-btn" title="Edit" onclick="editKbEntry('${entry.id}')">✏️</button>
+          <button class="kb-entry-btn del" title="Delete" onclick="deleteKbEntry('${entry.id}')">🗑</button>
+        </div>`;
+      container.appendChild(row);
+    });
+  }
+
+  function editKbEntry(id) {
+    const entry = _kbEntries.find(e => e.id === id);
+    if (!entry) return;
+    _kbEditingId = id;
+    document.getElementById('kb-f-category').value = entry.category || '';
+    document.getElementById('kb-f-key').value = entry.key || '';
+    document.getElementById('kb-f-value').value = entry.value || '';
+    document.getElementById('kb-f-category').focus();
+  }
+
+  function clearKbForm() {
+    _kbEditingId = null;
+    document.getElementById('kb-f-category').value = '';
+    document.getElementById('kb-f-key').value = '';
+    document.getElementById('kb-f-value').value = '';
+  }
+
+  async function saveKbEntry() {
+    const category = document.getElementById('kb-f-category').value.trim();
+    const key      = document.getElementById('kb-f-key').value.trim();
+    const value    = document.getElementById('kb-f-value').value.trim();
+    if (!category || !key || !value) { alert('Category, Key, and Value are all required.'); return; }
+
+    const SB_HEADERS = {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+    };
+
+    try {
+      let r;
+      if (_kbEditingId) {
+        // PATCH existing
+        r = await fetch(`${SUPABASE_URL}/rest/v1/knowledge_base?id=eq.${_kbEditingId}`, {
+          method: 'PATCH',
+          headers: SB_HEADERS,
+          body: JSON.stringify({ category, key, value }),
+        });
+      } else {
+        // POST new
+        r = await fetch(`${SUPABASE_URL}/rest/v1/knowledge_base`, {
+          method: 'POST',
+          headers: SB_HEADERS,
+          body: JSON.stringify({ category, key, value }),
+        });
+      }
+      if (!r.ok) {
+        const err = await r.text();
+        console.error('[saveKbEntry] Error:', r.status, err);
+        alert('Save failed: ' + err.slice(0, 120));
+        return;
+      }
+    } catch (e) {
+      console.error('[saveKbEntry] Network error:', e.message);
+      alert('Network error: ' + e.message);
+      return;
+    }
+
+    clearKbForm();
+    await refreshKbEntries();
+  }
+
+  async function deleteKbEntry(id) {
+    if (!confirm('Delete this entry?')) return;
+    try {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/knowledge_base?id=eq.${id}`, {
+        method: 'DELETE',
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+      });
+      if (!r.ok) { console.error('[deleteKbEntry] Error:', r.status); }
+    } catch (e) {
+      console.error('[deleteKbEntry] Network error:', e.message);
+    }
+    await refreshKbEntries();
+  }
+
   // ── System prompt builder ──
-  function buildSystemPrompt(properties) {
+  function buildSystemPrompt(properties, knowledgeBase) {
     return `You are the Coldwater Assistant, an AI assistant for Coldwater Property Group run by William Smith.
 
 BUSINESS MODEL:
@@ -1008,7 +1381,7 @@ Available fields for insert_property: first_name, last_name, phone, email, addre
 Always confirm what action you're taking before outputting a CRM command. Only include fields that were provided — omit empty ones.
 
 If your response will be long, break it into clearly numbered sections and complete each section fully before moving to the next. Never end mid-sentence.
-
+${formatKnowledgeBaseForPrompt(knowledgeBase || [])}
 CURRENT PROPERTIES IN CRM (${properties.length} total):
 ${JSON.stringify(properties.map(p => ({
   id: p.id,
@@ -1270,15 +1643,20 @@ ${JSON.stringify(properties.map(p => ({
 
     showStatus('loading-crm', 'Loading CRM data...');
     let properties = [];
+    let knowledgeBase = [];
     try {
-      properties = await fetchProperties();
+      [properties, knowledgeBase] = await Promise.all([
+        fetchProperties(),
+        fetchKnowledgeBase(),
+      ]);
       if (!Array.isArray(properties)) properties = [];
+      if (!Array.isArray(knowledgeBase)) knowledgeBase = [];
     } catch (e) {
-      console.warn('Failed to fetch properties:', e);
+      console.warn('Failed to fetch CRM data:', e);
     }
 
     showStatus('thinking', 'Thinking...');
-    const system = buildSystemPrompt(properties);
+    const system = buildSystemPrompt(properties, knowledgeBase);
 
     let userContent;
     if (attachments.length) {
