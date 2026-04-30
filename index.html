@@ -180,6 +180,11 @@
       color: var(--text2);
     }
 
+    .recent-item.recent-active {
+      background: var(--teal-dim);
+      color: var(--teal);
+    }
+
     /* Sidebar footer */
     #sidebar-footer {
       padding: 12px 16px;
@@ -716,11 +721,7 @@
     </nav>
 
     <div class="nav-section-label" style="padding-left:16px">Recent</div>
-    <div id="recent-chats">
-      <div class="recent-item">Calculate MAO for Le Flore County</div>
-      <div class="recent-item">Update Whitfield property status</div>
-      <div class="recent-item">Summarize active leads</div>
-    </div>
+    <div id="recent-chats"></div>
 
     <div id="sidebar-footer">
       <span class="model-badge">Claude Sonnet</span>
@@ -811,10 +812,110 @@
     document.getElementById('sidebar').classList.toggle('collapsed');
   }
 
+  // ══════════════════════════════════════════
+  // CONVERSATION STORE  (localStorage)
+  // ══════════════════════════════════════════
+  const CONV_KEY = 'cw_conversations'; // list of { id, title, ts, messages[] }
+  let currentConvId = null;
+
+  function _loadAllConvs() {
+    try { return JSON.parse(localStorage.getItem(CONV_KEY) || '[]'); }
+    catch { return []; }
+  }
+
+  function _saveAllConvs(convs) {
+    localStorage.setItem(CONV_KEY, JSON.stringify(convs));
+  }
+
+  // Save (or update) the current conversation
+  function saveCurrentConv() {
+    if (!messages.length) return;
+    const convs = _loadAllConvs();
+    const title = (() => {
+      const firstUser = messages.find(m => m.role === 'user');
+      const raw = firstUser
+        ? (typeof firstUser.content === 'string' ? firstUser.content : (firstUser.content.find(b => b.type === 'text')?.text || 'Untitled'))
+        : 'Untitled';
+      return raw.trim().slice(0, 40) + (raw.trim().length > 40 ? '…' : '');
+    })();
+
+    const idx = convs.findIndex(c => c.id === currentConvId);
+    const entry = { id: currentConvId, title, ts: Date.now(), messages: messages.slice() };
+    if (idx >= 0) convs[idx] = entry;
+    else convs.unshift(entry);
+
+    // Keep max 50 stored; only show 10 in sidebar
+    _saveAllConvs(convs.slice(0, 50));
+    renderRecentChats();
+  }
+
+  // Render the 10 most recent convs in the sidebar
+  function renderRecentChats() {
+    const container = document.getElementById('recent-chats');
+    const convs = _loadAllConvs().slice(0, 10);
+    container.innerHTML = '';
+    if (!convs.length) {
+      container.innerHTML = '<div class="recent-item" style="color:var(--text3);cursor:default">No conversations yet</div>';
+      return;
+    }
+    convs.forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'recent-item' + (c.id === currentConvId ? ' recent-active' : '');
+      item.title = c.title;
+      item.textContent = c.title;
+      item.onclick = () => loadConv(c.id);
+      container.appendChild(item);
+    });
+  }
+
+  // Load a saved conversation into the chat window
+  function loadConv(id) {
+    const convs = _loadAllConvs();
+    const conv = convs.find(c => c.id === id);
+    if (!conv) return;
+
+    currentConvId = id;
+    messages = conv.messages.slice();
+    clearAttachment();
+
+    // Rebuild the chat UI
+    const inner = chatEl.querySelector('.chat-inner');
+    inner.innerHTML = '';
+    messages.forEach(m => {
+      const text = typeof m.content === 'string'
+        ? m.content
+        : (m.content.find(b => b.type === 'text')?.text || '[attachment]');
+      addMessage(m.role, text, /* skipSave */ true);
+    });
+
+    renderRecentChats();
+    chatEl.scrollTop = chatEl.scrollHeight;
+    inputEl.focus();
+  }
+
   // ── New chat ──
   function newChat() {
+    // Save the current conv before starting fresh
+    saveCurrentConv();
+    currentConvId = 'conv_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     messages = [];
-    chatEl.querySelector('.chat-inner').innerHTML = '<div id="welcome">' + document.getElementById('welcome').innerHTML + '</div>';
+    clearAttachment();
+
+    const inner = chatEl.querySelector('.chat-inner');
+    inner.innerHTML = `
+      <div id="welcome">
+        <div class="welcome-icon">🏡</div>
+        <h2>How can I help you today?</h2>
+        <p>Ask me about properties, run comps, update statuses, add notes, or anything about the Coldwater CRM.</p>
+        <div class="welcome-chips">
+          <div class="welcome-chip" onclick="setInput('Show me all properties currently being researched')">Researching properties</div>
+          <div class="welcome-chip" onclick="setInput('What properties are under contract?')">Under contract</div>
+          <div class="welcome-chip" onclick="setInput('Calculate MAO for a property with ARV of \\$80,000')">Calculate MAO</div>
+          <div class="welcome-chip" onclick="setInput('Summarize all active leads')">Summarize leads</div>
+        </div>
+      </div>`;
+    renderRecentChats();
+    inputEl.focus();
   }
 
   // ── Auto-resize textarea ──
@@ -940,7 +1041,7 @@ ${JSON.stringify(properties, null, 2)}`;
   }
 
   // ── Add message to UI ──
-  function addMessage(role, text) {
+  function addMessage(role, text, skipSave = false) {
     // Hide welcome screen
     const welcome = document.getElementById('welcome');
     if (welcome) welcome.style.display = 'none';
@@ -1138,6 +1239,7 @@ ${JSON.stringify(properties, null, 2)}`;
     hideStatus();
     messages.push({ role: 'assistant', content: responseText });
     addMessage('assistant', responseText);
+    saveCurrentConv();
     detectAndRunCrmCommands(responseText);
 
     isLoading = false;
@@ -1237,6 +1339,10 @@ ${JSON.stringify(properties, null, 2)}`;
     };
     reader.readAsDataURL(file);
   });
+
+  // ── Init: seed a conversation ID and populate sidebar ──
+  currentConvId = 'conv_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  renderRecentChats();
 
   // ── Initial focus ──
   inputEl.focus();
