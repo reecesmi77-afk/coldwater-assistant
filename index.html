@@ -1248,15 +1248,23 @@ ${JSON.stringify(properties, null, 2)}`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages, system }),
       });
-      const ct = res.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) {
-        responseText = `Sorry, the assistant returned an unexpected response (HTTP ${res.status}). Please try again.`;
-      } else {
-        const data = await res.json();
-        responseText = data.error ? `Sorry, there was an error: ${data.message || data.error}` : (data.text || '(No response)');
+      // Read as text first — never call .json() directly on a potentially HTML response
+      const raw = await res.text();
+      let data = null;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        console.error('[chat] Non-JSON response (HTTP', res.status, '):', raw.slice(0, 300));
+        responseText = `Sorry, the assistant is temporarily unavailable (HTTP ${res.status}). Please try again in a moment.`;
+      }
+      if (data !== null) {
+        responseText = data.error
+          ? `Sorry, there was an error: ${data.message || data.error}`
+          : (data.text || '(No response)');
       }
     } catch (e) {
-      responseText = `Network error: ${e.message}`;
+      console.error('[chat] Fetch failed:', e.message);
+      responseText = 'Sorry, could not reach the assistant. Check your connection and try again.';
     }
 
     hideStatus();
