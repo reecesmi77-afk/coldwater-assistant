@@ -628,6 +628,50 @@
       display: inline-block;
     }
 
+    /* ── Drag-and-drop overlay ── */
+    #drop-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      background: rgba(13,13,13,0.88);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+
+    #drop-overlay.active { display: flex; }
+
+    #drop-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      border: 2px dashed var(--teal-border);
+      border-radius: 20px;
+      padding: 60px 80px;
+      color: var(--teal);
+      pointer-events: none;
+      animation: drop-in 0.18s ease;
+    }
+
+    @keyframes drop-in {
+      from { opacity: 0; transform: scale(.95); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+
+    #drop-inner p {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--teal);
+      margin: 0;
+    }
+
+    #drop-inner span {
+      font-size: 13px;
+      color: var(--text3);
+    }
+
     /* ── Responsive ── */
     @media (max-width: 640px) {
       #sidebar { display: none; }
@@ -683,6 +727,15 @@
     </div>
   </aside>
 
+  <!-- Drag-and-drop overlay -->
+  <div id="drop-overlay">
+    <div id="drop-inner">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      <p>Drop file to analyze</p>
+      <span>Images &amp; PDFs supported</span>
+    </div>
+  </div>
+
   <!-- Toggle sidebar button -->
   <button id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">☰</button>
 
@@ -716,7 +769,7 @@
       <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none" onchange="handleFileSelect(event)">
       <div id="attachment-preview"></div>
       <div id="input-box">
-        <button class="input-btn" id="attach-btn" title="Attach image or PDF" onclick="document.getElementById('file-input').click()">📎</button>
+        <button class="input-btn" id="attach-btn" title="Attach image or PDF" onclick="document.getElementById('file-input').click()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
         <textarea
           id="user-input"
           rows="1"
@@ -1141,6 +1194,49 @@ ${JSON.stringify(properties, null, 2)}`;
 
     recognition.start();
   }
+
+  // ── Drag-and-drop ──
+  const dropOverlay = document.getElementById('drop-overlay');
+  let dragCounter = 0; // track nested dragenter/dragleave pairs
+
+  window.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    if (dragCounter === 1) dropOverlay.classList.add('active');
+  });
+
+  window.addEventListener('dragleave', (e) => {
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      dropOverlay.classList.remove('active');
+    }
+  });
+
+  window.addEventListener('dragover', (e) => {
+    e.preventDefault(); // required to allow drop
+  });
+
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    dropOverlay.classList.remove('active');
+
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+    if (!allowed.includes(file.type)) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      const base64 = dataUrl.split(',')[1];
+      pendingAttachment = { base64, mediaType: file.type, fileName: file.name };
+      showAttachmentPreview(file, dataUrl, file.type);
+    };
+    reader.readAsDataURL(file);
+  });
 
   // ── Initial focus ──
   inputEl.focus();
