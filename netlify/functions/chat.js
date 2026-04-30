@@ -34,10 +34,83 @@ exports.handler = async (event) => {
       };
     }
 
-    const { messages, system } = JSON.parse(event.body);
+    const { messages } = JSON.parse(event.body);
 
     // Limit to last 8 messages server-side
     const trimmedMessages = Array.isArray(messages) ? messages.slice(-8) : [];
+
+    // ── Fetch KB + properties in parallel from Supabase ──
+    const sbUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+    const sbKey = process.env.SUPABASE_SERVICE_KEY || '';
+    const sbHeaders = {
+      'apikey': sbKey,
+      'Authorization': `Bearer ${sbKey}`,
+    };
+
+    let kbRows = [];
+    let properties = [];
+
+    if (sbUrl && sbKey) {
+      const [kbRes, propsRes] = await Promise.allSettled([
+        fetch(`${sbUrl}/rest/v1/knowledge_base?select=*&order=category.asc`, { headers: sbHeaders }),
+        fetch(`${sbUrl}/rest/v1/properties?select=*&archived=eq.false&order=created_at.desc`, { headers: sbHeaders }),
+      ]);
+
+      if (kbRes.status === 'fulfilled' && kbRes.value.ok) {
+        try { kbRows = await kbRes.value.json(); } catch {}
+      } else {
+        console.warn('[chat] KB fetch failed:', kbRes.reason || kbRes.value?.status);
+      }
+
+      if (propsRes.status === 'fulfilled' && propsRes.value.ok) {
+        try { properties = await propsRes.value.json(); } catch {}
+      } else {
+        console.warn('[chat] Properties fetch failed:', propsRes.reason || propsRes.value?.status);
+      }
+    }
+
+    // ── Format knowledge base ──
+    function formatKB(rows) {
+      if (!Array.isArray(rows) || !rows.length) return '(none)';
+      const grouped = {};
+      rows.forEach(r => {
+        const cat = r.category || 'General';
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(`  ${r.key}: ${r.value}`);
+      });
+      return Object.entries(grouped)
+        .map(([cat, items]) => `${cat}:\n${items.join('\n')}`)
+        .join('\n\n');
+    }
+
+    // ── Format properties ──
+    function formatProperties(rows) {
+      if (!Array.isArray(rows) || !rows.length) return '(none)';
+      return rows.map(p => {
+        const name = [p.first_name, p.last_name].filter(Boolean).join(' ') || '—';
+        const addr = [p.address, p.city, p.county, p.state].filter(Boolean).join(', ') || '—';
+        const acres = p.acres ? `${p.acres}ac` : '—';
+        const status = p.status || '—';
+        const arv = p.arv ? `$${p.arv}` : '—';
+        const offer = p.offer_amount ? `$${p.offer_amount}` : '—';
+        return `${name} | ${addr} | ${acres} | Status: ${status} | ARV: ${arv} | Offer: ${offer}`;
+      }).join('\n');
+    }
+
+    // ── Build dynamic system prompt ──
+    const system = `You are the Coldwater Assistant — permanent AI consigliere for Reece Smith, owner of Coldwater Property Group LLC. The knowledge base below contains his exact business rules — these always override your general training.
+
+KNOWLEDGE BASE:
+${formatKB(kbRows)}
+
+ACTIVE PIPELINE:
+${formatProperties(properties)}
+
+RULES:
+- Knowledge base always wins over general real estate knowledge
+- Opening offer = ARV x 0.35, MAO = ARV x 0.50, never exceed MAO
+- Raw vacant land only — never mention repair costs or rehab
+- Be direct and specific`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
