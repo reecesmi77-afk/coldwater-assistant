@@ -1008,7 +1008,23 @@ Available fields for insert_property: first_name, last_name, phone, email, addre
 Always confirm what action you're taking before outputting a CRM command. Only include fields that were provided — omit empty ones.
 
 CURRENT PROPERTIES IN CRM (${properties.length} total):
-${JSON.stringify(properties, null, 2)}`;
+${JSON.stringify(properties.map(p => ({
+  id: p.id,
+  name: [p.first_name, p.last_name].filter(Boolean).join(' ') || p.name || '',
+  phone: p.phone || '',
+  email: p.email || '',
+  address: [p.address, p.city, p.county, p.state].filter(Boolean).join(', '),
+  apn: p.apn || '',
+  acres: p.acres || '',
+  status: p.status || p.stage || '',
+  source: p.source || '',
+  arv: p.arv || '',
+  mao: p.mao || '',
+  offer_amount: p.offer_amount || '',
+  offer_status: p.offer_status || '',
+  seller_notes: p.seller_notes || '',
+})))}`;
+
   }
 
   // ── Format timestamp ──

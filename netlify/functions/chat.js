@@ -1,5 +1,3 @@
-exports.config = { timeout: 26 };
-
 exports.handler = async (event) => {
   const CORS = {
     'Access-Control-Allow-Origin': '*',

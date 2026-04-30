@@ -1,3 +1,7 @@
 [build]
   functions = "netlify/functions"
   publish = "."
+
+[functions]
+  [functions.chat]
+    timeout = 26
