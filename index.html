@@ -947,13 +947,31 @@
 
   // ── Supabase fetch ──
   async function fetchProperties() {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/properties?select=*&order=created_at.desc`, {
-      headers: {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      }
-    });
-    return await r.json();
+    let r;
+    try {
+      r = await fetch(`${SUPABASE_URL}/rest/v1/properties?select=*&order=created_at.desc`, {
+        headers: {
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        }
+      });
+    } catch (e) {
+      console.warn('[fetchProperties] Network error:', e.message);
+      return [];
+    }
+    // Guard against HTML error pages (e.g. Supabase 401/403)
+    const contentType = r.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      console.warn('[fetchProperties] Non-JSON response from Supabase (status', r.status, ')');
+      return [];
+    }
+    try {
+      const data = await r.json();
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      console.warn('[fetchProperties] JSON parse error:', e.message);
+      return [];
+    }
   }
 
   // ── System prompt builder ──
@@ -1230,8 +1248,13 @@ ${JSON.stringify(properties, null, 2)}`;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages, system }),
       });
-      const data = await res.json();
-      responseText = data.error ? `Sorry, there was an error: ${data.error}` : (data.text || '(No response)');
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        responseText = `Sorry, the assistant returned an unexpected response (HTTP ${res.status}). Please try again.`;
+      } else {
+        const data = await res.json();
+        responseText = data.error ? `Sorry, there was an error: ${data.message || data.error}` : (data.text || '(No response)');
+      }
     } catch (e) {
       responseText = `Network error: ${e.message}`;
     }
