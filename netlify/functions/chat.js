@@ -1,3 +1,5 @@
+exports.config = { timeout: 26 };
+
 exports.handler = async (event) => {
   const CORS = {
     'Access-Control-Allow-Origin': '*',
@@ -36,6 +38,9 @@ exports.handler = async (event) => {
 
     const { messages, system } = JSON.parse(event.body);
 
+    // Limit to last 6 messages server-side as a safety net
+    const trimmedMessages = Array.isArray(messages) ? messages.slice(-6) : [];
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -44,10 +49,10 @@ exports.handler = async (event) => {
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 2048,
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 500,
         system,
-        messages,
+        messages: trimmedMessages,
       }),
     });
 

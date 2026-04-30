@@ -1246,7 +1246,7 @@ ${JSON.stringify(properties, null, 2)}`;
       const res = await fetch('/.netlify/functions/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages, system }),
+        body: JSON.stringify({ messages: messages.slice(-6), system }),
       });
       // Read as text first — never call .json() directly on a potentially HTML response
       const raw = await res.text();
