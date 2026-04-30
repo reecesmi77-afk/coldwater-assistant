@@ -767,7 +767,7 @@
 
     <!-- Input area -->
     <div id="input-area">
-      <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp,application/pdf" style="display:none" onchange="handleFileSelect(event)">
+      <input type="file" id="file-input" accept="image/jpeg,image/png,image/webp,application/pdf" multiple style="display:none" onchange="handleFileSelect(event)">
       <div id="attachment-preview"></div>
       <div id="input-box">
         <button class="input-btn" id="attach-btn" title="Attach image or PDF" onclick="document.getElementById('file-input').click()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
@@ -796,7 +796,7 @@
   let isLoading = false;
   let recognition = null;
   let isRecording = false;
-  let pendingAttachment = null; // { base64, mediaType, fileName }
+  let pendingAttachments = []; // [{ base64, mediaType, fileName }, ...]
 
   // ── DOM refs ──
   const chatEl    = document.getElementById('chat');
@@ -1161,75 +1161,112 @@ ${JSON.stringify(properties.map(p => ({
 
   // ── File attachment ──
   function handleFileSelect(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+    const files = Array.from(event.target.files);
+    if (!files.length) return;
     event.target.value = '';
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result;
-      const base64 = dataUrl.split(',')[1];
-      const mediaType = file.type;
-      pendingAttachment = { base64, mediaType, fileName: file.name };
-      showAttachmentPreview(file, dataUrl, mediaType);
-    };
-    reader.readAsDataURL(file);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        const base64 = dataUrl.split(',')[1];
+        pendingAttachments.push({ base64, mediaType: file.type, fileName: file.name });
+        renderAttachmentPreviews();
+      };
+      reader.readAsDataURL(file);
+    });
   }
 
-  function showAttachmentPreview(file, dataUrl, mediaType) {
+  function renderAttachmentPreviews() {
     const previewEl = document.getElementById('attachment-preview');
     previewEl.innerHTML = '';
-    previewEl.classList.add('visible');
-
-    const badge = document.createElement('div');
-    badge.className = 'attachment-badge';
-
-    if (mediaType.startsWith('image/')) {
-      const img = document.createElement('img');
-      img.src = dataUrl;
-      img.className = 'attachment-thumb';
-      badge.appendChild(img);
-    } else {
-      const icon = document.createElement('span');
-      icon.textContent = '📄';
-      badge.appendChild(icon);
+    if (!pendingAttachments.length) {
+      previewEl.classList.remove('visible');
+      return;
     }
+    previewEl.classList.add('visible');
+    pendingAttachments.forEach((att, idx) => {
+      const badge = document.createElement('div');
+      badge.className = 'attachment-badge';
 
-    const name = document.createElement('span');
-    name.textContent = file.name;
-    badge.appendChild(name);
+      if (att.mediaType.startsWith('image/')) {
+        const img = document.createElement('img');
+        img.src = 'data:' + att.mediaType + ';base64,' + att.base64;
+        img.className = 'attachment-thumb';
+        badge.appendChild(img);
+      } else {
+        const icon = document.createElement('span');
+        icon.textContent = '📄';
+        badge.appendChild(icon);
+      }
 
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'attachment-remove';
-    removeBtn.title = 'Remove attachment';
-    removeBtn.textContent = '✕';
-    removeBtn.onclick = clearAttachment;
-    badge.appendChild(removeBtn);
+      const name = document.createElement('span');
+      name.textContent = att.fileName;
+      badge.appendChild(name);
 
-    previewEl.appendChild(badge);
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'attachment-remove';
+      removeBtn.title = 'Remove';
+      removeBtn.textContent = '✕';
+      removeBtn.onclick = () => {
+        pendingAttachments.splice(idx, 1);
+        renderAttachmentPreviews();
+      };
+      badge.appendChild(removeBtn);
+      previewEl.appendChild(badge);
+    });
   }
 
   function clearAttachment() {
-    pendingAttachment = null;
+    pendingAttachments = [];
     const previewEl = document.getElementById('attachment-preview');
     previewEl.innerHTML = '';
     previewEl.classList.remove('visible');
   }
 
   // ── Main send function ──
+  // ── Watchdog: re-enable send button if stuck disabled for >30s ──
+  let _sendDisabledAt = null;
+  setInterval(() => {
+    if (sendBtn.disabled && !isLoading) {
+      sendBtn.disabled = false;
+      inputEl.focus();
+    }
+    if (sendBtn.disabled && _sendDisabledAt && (Date.now() - _sendDisabledAt > 30000)) {
+      console.warn('[watchdog] Send button stuck — force-enabling');
+      isLoading = false;
+      sendBtn.disabled = false;
+      hideStatus();
+      inputEl.focus();
+    }
+  }, 2000);
+
+  function _resetSendState() {
+    isLoading = false;
+    sendBtn.disabled = false;
+    _sendDisabledAt = null;
+    hideStatus();
+    inputEl.focus();
+  }
+
+  // ── Main send function ──
   async function sendMessage() {
     const text = inputEl.value.trim();
-    if ((!text && !pendingAttachment) || isLoading) return;
+    if ((!text && !pendingAttachments.length) || isLoading) return;
 
     isLoading = true;
     sendBtn.disabled = true;
+    _sendDisabledAt = Date.now();
     inputEl.value = '';
     inputEl.style.height = 'auto';
 
-    const attachment = pendingAttachment;
+    const attachments = pendingAttachments.slice();
     clearAttachment();
 
-    addMessage('user', text || (attachment ? `[Attached: ${attachment.fileName}]` : ''));
+    const fileLabel = attachments.length
+      ? attachments.map(a => a.fileName).join(', ')
+      : '';
+    addMessage('user', text || (fileLabel ? `[Attached: ${fileLabel}]` : ''));
 
     showStatus('loading-crm', 'Loading CRM data...');
     let properties = [];
@@ -1244,14 +1281,16 @@ ${JSON.stringify(properties.map(p => ({
     const system = buildSystemPrompt(properties);
 
     let userContent;
-    if (attachment) {
-      const isImage = attachment.mediaType.startsWith('image/');
-      const fileBlock = isImage
-        ? { type: 'image', source: { type: 'base64', media_type: attachment.mediaType, data: attachment.base64 } }
-        : { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: attachment.base64 } };
+    if (attachments.length) {
+      const fileBlocks = attachments.map(att => {
+        const isImage = att.mediaType.startsWith('image/');
+        return isImage
+          ? { type: 'image', source: { type: 'base64', media_type: att.mediaType, data: att.base64 } }
+          : { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: att.base64 } };
+      });
       userContent = [
-        fileBlock,
-        { type: 'text', text: text || 'Please review the attached file.' },
+        ...fileBlocks,
+        { type: 'text', text: text || 'Please review the attached file(s).' },
       ];
     } else {
       userContent = text;
@@ -1282,15 +1321,11 @@ ${JSON.stringify(properties.map(p => ({
       responseText = `Error: ${e.message}`;
     }
 
-    hideStatus();
     messages.push({ role: 'assistant', content: responseText });
     addMessage('assistant', responseText);
     saveCurrentConv();
     detectAndRunCrmCommands(responseText);
-
-    isLoading = false;
-    sendBtn.disabled = false;
-    inputEl.focus();
+    _resetSendState();
   }
 
   // ── Welcome chip helper ──
@@ -1380,8 +1415,8 @@ ${JSON.stringify(properties.map(p => ({
     reader.onload = () => {
       const dataUrl = reader.result;
       const base64 = dataUrl.split(',')[1];
-      pendingAttachment = { base64, mediaType: file.type, fileName: file.name };
-      showAttachmentPreview(file, dataUrl, file.type);
+      pendingAttachments.push({ base64, mediaType: file.type, fileName: file.name });
+      renderAttachmentPreviews();
     };
     reader.readAsDataURL(file);
   });
