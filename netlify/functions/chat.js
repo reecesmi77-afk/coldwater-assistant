@@ -202,7 +202,20 @@ RULES:
       };
     }
 
-    const text = data.content?.[0]?.text || '';
+    let text = data.content?.[0]?.text || '';
+
+    // ── Lead auto-save (blocks response — prepends status line) ──
+    const isLeadEmail = /Event:\s*(SMS|call)/i.test(lastText) || lastText.includes('letsgo@leadminingpros');
+    if (isLeadEmail) {
+      const saveResult = await saveLeadFromEmail(lastText, sbUrl, sbKey);
+      if (saveResult.ok) {
+        const l = saveResult.lead;
+        text = `✅ Lead saved to REI Razor — ${l.first_name} ${l.last_name}, ${l.county} County ${l.state}, ${l.acres || '?'} acres. Status: ${l.status}.\n\n${text}`;
+      } else {
+        text = `⚠️ Lead analysis complete but CRM save failed — please add manually in REI Razor.\n\n${text}`;
+        console.warn('[lead-save] failed:', saveResult.error);
+      }
+    }
 
     // ── Background knowledge extraction (fire-and-forget) ──
     extractAndSaveKnowledge(trimmedMessages, text).catch(e =>
@@ -218,6 +231,177 @@ RULES:
     };
   }
 };
+
+// ── Lead email parser ─────────────────────────────────────────────────────────
+function parseLeadEmail(raw) {
+  const field = (label) => {
+    const re = new RegExp(label + '[:\\s]+([^\\n]+)', 'i');
+    const m = raw.match(re);
+    return m ? m[1].trim() : null;
+  };
+
+  // Source / status from event type
+  const isSMS  = /Event:\s*SMS/i.test(raw);
+  const isCall = /Event:\s*call/i.test(raw);
+  const source = isSMS ? 'Cold SMS' : isCall ? 'Lead Gen Call' : 'Cold SMS';
+  const status = isSMS ? 'Call Needed' : 'Researching';
+
+  // Name: "First Name" field — split on first space
+  const fullFirst = field('First Name') || '';
+  const fullLast  = field('Last Name')  || '';
+  const nameParts = fullFirst.trim().split(/\s+/);
+  const firstName = nameParts[0] || fullFirst || null;
+  const lastName  = (nameParts.length > 1 ? nameParts.slice(1).join(' ') + ' ' : '') + fullLast;
+
+  // Phone: strip +1, format XXX-XXX-XXXX
+  let phone = field('Phone(?: Number)?') || field('Phone') || null;
+  if (phone) {
+    const digits = phone.replace(/\D/g, '').replace(/^1/, '');
+    if (digits.length === 10) {
+      phone = `${digits.slice(0,3)}-${digits.slice(3,6)}-${digits.slice(6)}`;
+    }
+  }
+
+  // Email
+  let email = field('Email') || null;
+  if (email && /none|no email/i.test(email)) email = null;
+
+  // Address: parse street, city, state, zip from "Address" field
+  const rawAddr = field('Address') || '';
+  // Strip leading dashes/pipes
+  const cleanAddr = rawAddr.replace(/^[\-–—|,\s]+/, '').trim();
+  // Try to match "street, city, state zip" or "street city state zip"
+  let street = cleanAddr, city = null, state = null, zip = null;
+  const addrMatch = cleanAddr.match(/^(.+?),\s*([^,]+),\s*([A-Z]{2})\s*(\d{5})?/i);
+  if (addrMatch) {
+    street = addrMatch[1].trim();
+    city   = addrMatch[2].trim();
+    state  = addrMatch[3].toUpperCase();
+    zip    = addrMatch[4] || null;
+  } else {
+    // Fallback: last two tokens may be STATE ZIP
+    const tokens = cleanAddr.split(/[\s,]+/);
+    const last = tokens[tokens.length - 1];
+    const secondLast = tokens[tokens.length - 2];
+    if (/^\d{5}$/.test(last)) {
+      zip   = last;
+      state = /^[A-Z]{2}$/i.test(secondLast) ? secondLast.toUpperCase() : null;
+      street = tokens.slice(0, state ? -2 : -1).join(' ');
+    } else if (/^[A-Z]{2}$/i.test(last)) {
+      state  = last.toUpperCase();
+      street = tokens.slice(0, -1).join(' ');
+    }
+  }
+
+  // County
+  const county = field('County') || null;
+
+  // APN
+  const apn = field('APN') || null;
+
+  // Acres — null if N/A or empty
+  let acres = field('Acres(?: \\(Land\\))?') || field('Acres') || null;
+  if (acres && /n\/?a/i.test(acres)) acres = null;
+
+  // Notes: everything after "Notes:" label
+  const notesMatch = raw.match(/Notes?:\s*([\s\S]+)/i);
+  const sellerNotes = notesMatch ? notesMatch[1].trim() : null;
+
+  return {
+    id: crypto.randomUUID(),
+    first_name: firstName || null,
+    last_name:  lastName.trim() || null,
+    phone,
+    email,
+    address: street || null,
+    city,
+    county,
+    state,
+    zip,
+    apn,
+    acres,
+    source,
+    status,
+    seller_notes: sellerNotes,
+    archived: false,
+    utilities: null,
+    road_access: null,
+    structures: null,
+    landlocked: null,
+    tax_delinquent: null,
+    fema_checked: null,
+    legal_description: null,
+    slope_report_notes: null,
+    slope_report_status: null,
+    comp_report_notes: null,
+    comp_report_status: null,
+    arv: null,
+    open_offer: null,
+    mao: null,
+    offer_amount: null,
+    offer_status: null,
+    seller2_name: null,
+    seller2_email: null,
+    seller2_phone: null,
+    seller2_address: null,
+    seller2_city_state_zip: null,
+  };
+}
+
+async function saveLeadFromEmail(rawText, sbUrl, sbKey) {
+  if (!sbUrl || !sbKey) return { ok: false, error: 'Supabase not configured' };
+
+  let lead;
+  try {
+    lead = parseLeadEmail(rawText);
+  } catch (e) {
+    return { ok: false, error: 'Parse error: ' + e.message };
+  }
+
+  console.log('[lead-save] parsed lead:', JSON.stringify({ id: lead.id, first_name: lead.first_name, last_name: lead.last_name, phone: lead.phone, county: lead.county, state: lead.state, acres: lead.acres }));
+
+  const SB_HEADERS_JSON = {
+    'apikey': sbKey,
+    'Authorization': `Bearer ${sbKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  const [propRes, logRes] = await Promise.allSettled([
+    fetch(`${sbUrl}/rest/v1/properties`, {
+      method: 'POST',
+      headers: {
+        ...SB_HEADERS_JSON,
+        'Prefer': 'resolution=merge-duplicates,return=representation',
+        'on-conflict': 'id',
+      },
+      body: JSON.stringify(lead),
+    }),
+    fetch(`${sbUrl}/rest/v1/activity_log`, {
+      method: 'POST',
+      headers: { ...SB_HEADERS_JSON, 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        property_id: lead.id,
+        entry: `Imported from lead email via Coldwater Assistant: ${lead.seller_notes || '(no notes)'}`,
+      }),
+    }),
+  ]);
+
+  const propOk = propRes.status === 'fulfilled' && propRes.value.ok;
+  const logOk  = logRes.status  === 'fulfilled' && logRes.value.ok;
+
+  if (!propOk) {
+    const body = propRes.status === 'fulfilled' ? await propRes.value.text().catch(() => '') : String(propRes.reason);
+    console.warn('[lead-save] properties upsert failed:', propRes.value?.status, body.slice(0, 300));
+    return { ok: false, error: `properties upsert failed (${propRes.value?.status}): ${body.slice(0, 120)}` };
+  }
+
+  if (!logOk) {
+    console.warn('[lead-save] activity_log insert failed:', logRes.value?.status || logRes.reason);
+    // Not fatal — lead was saved, just log the warning
+  }
+
+  return { ok: true, lead };
+}
 
 // ── Direct KB save (bypasses AI extraction) ──────────────────────────────────
 async function directSaveToKB(rawText) {
