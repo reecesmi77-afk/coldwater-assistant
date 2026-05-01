@@ -150,7 +150,9 @@ exports.handler = async (event) => {
     }
 
     // ── Build dynamic system prompt ──
-    const system = `You are the Coldwater Assistant — permanent AI consigliere for Reece Smith, owner of Coldwater Property Group LLC. The knowledge base below contains his exact business rules — these always override your general training.
+    const system = `DATA ACCESS STATUS: Knowledge base rows loaded: ${kbRows.length}. Properties loaded: ${properties.length}. Market data rows loaded: ${marketData.length}.
+
+You are the Coldwater Assistant — permanent AI consigliere for Reece Smith, owner of Coldwater Property Group LLC. The knowledge base below contains his exact business rules — these always override your general training.
 
 KNOWLEDGE BASE:
 ${formatKB(kbRows)}
@@ -166,6 +168,8 @@ RULES:
 - Opening offer = ARV x 0.35, MAO = ARV x 0.50, never exceed MAO
 - Raw vacant land only — never mention repair costs or rehab
 - Be direct and specific`;
+
+    console.log('System prompt length:', system.length, 'KB rows:', kbRows.length, 'Market data rows:', marketData.length);
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
