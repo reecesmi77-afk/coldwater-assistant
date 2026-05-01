@@ -75,26 +75,33 @@ exports.handler = async (event) => {
     if (sbUrl && sbKey) {
       const [kbRes, propsRes, mdRes] = await Promise.allSettled([
         fetch(`${sbUrl}/rest/v1/knowledge_base?select=*&order=category.asc`, { headers: sbHeaders }),
-        fetch(`${sbUrl}/rest/v1/properties?select=*&archived=eq.false&order=created_at.desc`, { headers: sbHeaders }),
+        fetch(`${sbUrl}/rest/v1/properties?select=*&order=created_at.desc`, { headers: sbHeaders }),
         fetch(`${sbUrl}/rest/v1/market_data?select=*&order=state.asc,county.asc`, { headers: sbHeaders }),
       ]);
 
       if (kbRes.status === 'fulfilled' && kbRes.value.ok) {
         try { kbRows = await kbRes.value.json(); } catch {}
       } else {
-        console.warn('[chat] KB fetch failed:', kbRes.reason || kbRes.value?.status);
+        console.warn('[chat] KB fetch failed — status:', kbRes.value?.status, '| reason:', kbRes.reason?.message || kbRes.reason || '(none)');
       }
 
       if (propsRes.status === 'fulfilled' && propsRes.value.ok) {
         try { properties = await propsRes.value.json(); } catch {}
       } else {
-        console.warn('[chat] Properties fetch failed:', propsRes.reason || propsRes.value?.status);
+        console.warn('[chat] Properties fetch failed — status:', propsRes.value?.status, '| reason:', propsRes.reason?.message || propsRes.reason || '(none)');
       }
 
-      if (mdRes.status === 'fulfilled' && mdRes.value.ok) {
-        try { marketData = await mdRes.value.json(); } catch {}
+      if (mdRes.status === 'fulfilled') {
+        const mdStatus = mdRes.value.status;
+        const mdBodyText = await mdRes.value.clone().text().catch(() => '(could not read body)');
+        console.log('[chat] market_data response — status:', mdStatus, '| body:', mdBodyText.slice(0, 200));
+        if (mdRes.value.ok) {
+          try { marketData = JSON.parse(mdBodyText); } catch (e) {
+            console.warn('[chat] market_data JSON parse failed:', e.message);
+          }
+        }
       } else {
-        console.warn('[chat] Market data fetch failed:', mdRes.reason || mdRes.value?.status);
+        console.warn('[chat] Market data fetch rejected — reason:', mdRes.reason?.message || mdRes.reason || '(none)');
       }
     }
 
