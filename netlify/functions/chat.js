@@ -39,6 +39,27 @@ exports.handler = async (event) => {
     // Limit to last 8 messages server-side
     const trimmedMessages = Array.isArray(messages) ? messages.slice(-8) : [];
 
+    // ── Check for direct "save to knowledge base:" command ──
+    const lastMsg = trimmedMessages[trimmedMessages.length - 1];
+    const lastText = lastMsg && lastMsg.role === 'user'
+      ? (typeof lastMsg.content === 'string'
+          ? lastMsg.content
+          : (lastMsg.content.find(b => b.type === 'text')?.text || ''))
+      : '';
+
+    const KB_PREFIX_RE = /^save\s+to\s+knowledge\s+base\s*:\s*/i;
+    if (KB_PREFIX_RE.test(lastText.trim())) {
+      const payload = lastText.trim().replace(KB_PREFIX_RE, '');
+      directSaveToKB(payload).catch(e =>
+        console.warn('[kb-direct] save failed:', e.message)
+      );
+      return {
+        statusCode: 200,
+        headers: CORS,
+        body: JSON.stringify({ text: '✅ Saving that directly to the knowledge base now. It will be available in the next message.' }),
+      };
+    }
+
     // ── Fetch KB + properties in parallel from Supabase ──
     const sbUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
     const sbKey = process.env.SUPABASE_SERVICE_KEY || '';
@@ -153,22 +174,63 @@ RULES:
   }
 };
 
+// ── Direct KB save (bypasses AI extraction) ──────────────────────────────────
+async function directSaveToKB(rawText) {
+  const sbUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+  const sbKey = process.env.SUPABASE_SERVICE_KEY || '';
+  if (!sbUrl || !sbKey) return;
+
+  // Use Haiku to parse the raw text into structured KB entries
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2000,
+      system: 'You are a knowledge extraction agent for a land investment business. The user is directly telling you what to save. Parse ALL of the provided text into structured knowledge base entries. Extract every piece of data — market statistics, price per acre, county data, contact info, procedures, deal criteria, anything. Return a JSON array of objects with fields: category, key, value. The value field should contain the complete data verbatim — do not summarize or truncate. Never return []. Find a way to structure everything provided.',
+      messages: [{ role: 'user', content: rawText }],
+    }),
+  });
+
+  if (!res.ok) {
+    console.warn('[kb-direct] Haiku parse failed:', res.status);
+    return;
+  }
+  const result = await res.json();
+  const raw = result.content?.[0]?.text || '[]';
+  const match = raw.match(/\[[\s\S]*\]/);
+  if (!match) return;
+  let items;
+  try { items = JSON.parse(match[0]); } catch { return; }
+  if (!Array.isArray(items) || !items.length) return;
+
+  await batchUpsertKB(items);
+  console.log('[kb-direct] saved', items.length, 'entries');
+}
+
 // ── Knowledge extraction ──────────────────────────────────────────────────────
 async function extractAndSaveKnowledge(messages, assistantReply) {
   const sbUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
   const sbKey = process.env.SUPABASE_SERVICE_KEY || '';
-  if (!sbUrl || !sbKey) return; // silently skip if not configured
+  if (!sbUrl || !sbKey) return;
 
-  // Build the exchange text from the last user message + assistant reply
-  const lastUser = [...messages].reverse().find(m => m.role === 'user');
-  const userText = lastUser
-    ? (typeof lastUser.content === 'string'
-        ? lastUser.content
-        : (lastUser.content.find(b => b.type === 'text')?.text || ''))
-    : '';
-  if (!userText && !assistantReply) return;
+  // Build exchange text from last 4 messages (2 exchanges) + assistant reply
+  const last4 = messages.slice(-4);
+  const exchangeLines = last4.map(m => {
+    const role = m.role === 'user' ? 'User' : 'Assistant';
+    const text = typeof m.content === 'string'
+      ? m.content
+      : (m.content.find(b => b.type === 'text')?.text || '');
+    return `${role}: ${text}`;
+  });
+  exchangeLines.push(`Assistant: ${assistantReply}`);
+  const exchange = exchangeLines.join('\n\n');
 
-  const exchange = `User: ${userText}\n\nAssistant: ${assistantReply}`;
+  if (!exchange.trim()) return;
 
   // Call Haiku for extraction
   let extracted = [];
@@ -182,15 +244,14 @@ async function extractAndSaveKnowledge(messages, assistantReply) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
-        system: 'You are a knowledge extraction agent for a land investment business. Review this conversation exchange and identify any specific business rules, preferences, market insights, contact details, or operational procedures that should be permanently remembered. If you find something worth saving, respond with a JSON array of objects with fields: category, key, value. If nothing new is worth saving, respond with an empty array []. Be selective — only save genuinely new, specific, reusable information.',
+        max_tokens: 2000,
+        system: 'You are a knowledge extraction agent for a land investment business. Review the ENTIRE conversation exchange and extract ALL specific data worth saving permanently. Be comprehensive, not selective. Save everything including: market data, county statistics, price per acre figures, days on market, sales volume, property addresses, APNs, offer calculations, funder criteria, contact information, operational procedures, and deal outcomes. Return a JSON array of objects with fields: category, key, value. The value field should contain the complete data — do not summarize or truncate. Return [] only if there is genuinely nothing new. When in doubt, save it.',
         messages: [{ role: 'user', content: exchange }],
       }),
     });
     if (!res.ok) return;
     const result = await res.json();
     const raw = result.content?.[0]?.text || '[]';
-    // Extract JSON array from the response (may be wrapped in markdown)
     const match = raw.match(/\[[\s\S]*\]/);
     if (!match) return;
     extracted = JSON.parse(match[0]);
@@ -200,28 +261,34 @@ async function extractAndSaveKnowledge(messages, assistantReply) {
     return;
   }
 
-  // Upsert each item to knowledge_base via Supabase
-  const SB_HEADERS = {
-    'apikey': sbKey,
-    'Authorization': `Bearer ${sbKey}`,
-    'Content-Type': 'application/json',
-    'Prefer': 'resolution=merge-duplicates',
-  };
+  await batchUpsertKB(extracted);
+  console.log('[kb-extract] saved', extracted.length, 'entries');
+}
 
-  for (const item of extracted) {
-    const { category, key, value } = item;
-    if (!category || !key || !value) continue;
-    try {
-      const r = await fetch(`${sbUrl}/rest/v1/knowledge_base?on_conflict=category,key`, {
-        method: 'POST',
-        headers: SB_HEADERS,
-        body: JSON.stringify({ category, key, value }),
-      });
-      if (!r.ok) {
-        console.warn('[kb-extract] Upsert failed for', key, ':', r.status, await r.text());
-      }
-    } catch (e) {
-      console.warn('[kb-extract] Upsert error for', key, ':', e.message);
+// ── Batch upsert to knowledge_base ───────────────────────────────────────────
+async function batchUpsertKB(items) {
+  const sbUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
+  const sbKey = process.env.SUPABASE_SERVICE_KEY || '';
+  if (!sbUrl || !sbKey) return;
+
+  const valid = items.filter(({ category, key, value }) => category && key && value);
+  if (!valid.length) return;
+
+  try {
+    const r = await fetch(`${sbUrl}/rest/v1/knowledge_base?on_conflict=category,key`, {
+      method: 'POST',
+      headers: {
+        'apikey': sbKey,
+        'Authorization': `Bearer ${sbKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify(valid),
+    });
+    if (!r.ok) {
+      console.warn('[kb-upsert] Batch upsert failed:', r.status, await r.text());
     }
+  } catch (e) {
+    console.warn('[kb-upsert] Batch upsert error:', e.message);
   }
 }
