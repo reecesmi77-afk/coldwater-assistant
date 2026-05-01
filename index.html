@@ -43,6 +43,7 @@
     #sidebar {
       width: 260px;
       min-width: 260px;
+      height: 100vh;
       background: var(--sidebar);
       display: flex;
       flex-direction: column;
@@ -157,6 +158,7 @@
     #recent-chats {
       flex: 1;
       overflow-y: auto;
+      min-height: 0;
       padding: 0 8px 16px;
     }
 
@@ -192,6 +194,7 @@
       font-size: 11px;
       color: var(--text3);
       flex-shrink: 0;
+      overflow: visible;
     }
 
     /* ══════════════════════════════════════════
@@ -203,6 +206,7 @@
       flex-direction: column;
       overflow: hidden;
       background: var(--bg);
+      position: relative;
     }
 
     /* Toggle sidebar button (top-left corner of main) */
@@ -838,6 +842,228 @@
     }
     #kb-open-btn:hover { background: var(--teal-dim); color: var(--teal); border-color: var(--teal-border); }
 
+    /* Preferences button in sidebar footer */
+    #prefs-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      width: 100%;
+      padding: 7px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: none;
+      color: var(--text2);
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      margin-bottom: 8px;
+    }
+    #prefs-btn:hover { background: var(--teal-dim); color: var(--teal); border-color: var(--teal-border); }
+
+    /* ── Preferences Modal ── */
+    #prefs-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 300;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 16px;
+      backdrop-filter: blur(3px);
+      overflow-y: auto;
+    }
+    #prefs-modal-backdrop.open { display: flex; }
+
+    #prefs-modal {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 540px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #prefs-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #prefs-modal-header h3 { font-size: 16px; font-weight: 600; color: var(--text); }
+
+    #prefs-modal-body {
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+      max-height: calc(100vh - 200px);
+    }
+    #prefs-modal-body::-webkit-scrollbar { width: 4px; }
+    #prefs-modal-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+    #prefs-modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .prefs-section-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--teal);
+      margin-bottom: 12px;
+    }
+
+    .prefs-section { display: flex; flex-direction: column; gap: 12px; }
+
+    .prefs-field-group { display: flex; flex-direction: column; gap: 5px; }
+
+    .prefs-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .prefs-label-hint {
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--text3);
+    }
+
+    .prefs-input {
+      background: var(--sidebar);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 7px 10px;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+    .prefs-input:focus { border-color: var(--teal-border); }
+    .prefs-input::placeholder { color: var(--text3); }
+
+    .prefs-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .prefs-slider {
+      width: 100%;
+      accent-color: var(--teal);
+      cursor: pointer;
+      height: 4px;
+    }
+
+    .prefs-slider-val {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--teal);
+      min-width: 36px;
+      text-align: right;
+    }
+
+    /* FEMA toggle */
+    .prefs-toggle {
+      display: flex;
+      background: var(--sidebar);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 3px;
+      width: fit-content;
+    }
+    .prefs-toggle-btn { cursor: pointer; }
+    .prefs-toggle-btn input[type="radio"] { display: none; }
+    .prefs-toggle-btn span {
+      display: block;
+      padding: 5px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text2);
+      transition: background 0.15s, color 0.15s;
+      user-select: none;
+    }
+    .prefs-toggle-btn input[type="radio"]:checked + span {
+      background: var(--teal);
+      color: #0d0d0d;
+      font-weight: 700;
+    }
+
+    /* Sort radio group */
+    .prefs-radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .prefs-radio-label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 13px;
+      color: var(--text2);
+      cursor: pointer;
+    }
+    .prefs-radio-label input[type="radio"] {
+      accent-color: var(--teal);
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    /* Modal buttons */
+    .prefs-modal-btn {
+      padding: 8px 18px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .prefs-modal-btn:hover { opacity: 0.82; }
+    .prefs-modal-btn.secondary { background: var(--surface2); color: var(--text2); }
+    .prefs-modal-btn.primary { background: var(--teal); color: #0d0d0d; }
+
+    /* Toast */
+    #prefs-toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(16px);
+      background: var(--surface2);
+      border: 1px solid var(--teal-border);
+      color: var(--teal);
+      padding: 10px 22px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 500;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.22s, transform 0.22s;
+      z-index: 500;
+      white-space: nowrap;
+    }
+    #prefs-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
     /* ── Responsive ── */
     @media (max-width: 640px) {
       #sidebar { display: none; }
@@ -885,9 +1111,15 @@
     <div id="recent-chats"></div>
 
     <div id="sidebar-footer">
+      <button style="display:block!important;visibility:visible!important;opacity:1!important;width:100%!important;padding:12px!important;background:red!important;color:white!important;font-size:16px!important;font-weight:bold!important;border:none!important;cursor:pointer!important;position:relative!important;z-index:99999!important;" onclick="alert('PREFS BUTTON WORKS')">
+        ⚙️ PREFERENCES TEST
+      </button>
       <button id="kb-open-btn" onclick="openKbModal()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         Knowledge Base
+      </button>
+      <button id="prefs-btn" onclick="openPrefsModal()">
+        ⚙️ Preferences
       </button>
       <span class="model-badge">Claude Sonnet</span>
     </div>
@@ -935,6 +1167,127 @@
       <span>Images &amp; PDFs supported</span>
     </div>
   </div>
+
+  <!-- Preferences modal -->
+  <div id="prefs-modal-backdrop" onclick="closePrefsModalOnBackdrop(event)">
+    <div id="prefs-modal">
+      <div id="prefs-modal-header">
+        <h3>⚙️ Preferences</h3>
+        <button class="kb-close-btn" onclick="closePrefsModal()">✕</button>
+      </div>
+      <div id="prefs-modal-body">
+
+        <!-- SEARCH CRITERIA -->
+        <div class="prefs-section">
+          <div class="prefs-section-title">Search Criteria</div>
+
+          <div class="prefs-row">
+            <div class="prefs-field-group">
+              <div class="prefs-label">Min Acres</div>
+              <input type="number" id="pref-min-acres" class="prefs-input" min="0" step="0.5" value="2" />
+            </div>
+            <div class="prefs-field-group">
+              <div class="prefs-label">Max Acres</div>
+              <input type="number" id="pref-max-acres" class="prefs-input" min="0" step="0.5" value="20" />
+            </div>
+          </div>
+
+          <div class="prefs-field-group">
+            <div class="prefs-label">
+              Min Buildability %
+              <span class="prefs-slider-val" id="pref-min-buildability-val">70%</span>
+            </div>
+            <input type="range" id="pref-min-buildability" class="prefs-slider" min="0" max="100" value="70"
+              oninput="document.getElementById('pref-min-buildability-val').textContent = this.value + '%'">
+          </div>
+
+          <div class="prefs-field-group">
+            <div class="prefs-label">
+              Max Wetlands %
+              <span class="prefs-slider-val" id="pref-max-wetlands-val">15%</span>
+            </div>
+            <input type="range" id="pref-max-wetlands" class="prefs-slider" min="0" max="30" value="15"
+              oninput="document.getElementById('pref-max-wetlands-val').textContent = this.value + '%'">
+          </div>
+
+          <div class="prefs-field-group">
+            <div class="prefs-label">Min Road Frontage (ft)</div>
+            <input type="number" id="pref-min-road-frontage" class="prefs-input" min="0" step="10" value="300" />
+          </div>
+
+          <div class="prefs-field-group">
+            <div class="prefs-label">
+              Min Days on Market
+              <span class="prefs-label-hint">0 = no minimum</span>
+            </div>
+            <input type="number" id="pref-min-dom" class="prefs-input" min="0" step="1" value="0" />
+          </div>
+
+          <div class="prefs-field-group">
+            <div class="prefs-label">Max Price Per Acre ($)</div>
+            <input type="number" id="pref-max-ppa" class="prefs-input" min="0" step="500" value="25000" />
+          </div>
+
+          <div class="prefs-field-group">
+            <div class="prefs-label" style="margin-bottom:6px">Include FEMA Flood Zones</div>
+            <div class="prefs-toggle">
+              <label class="prefs-toggle-btn">
+                <input type="radio" name="pref-fema" id="pref-fema-yes" value="yes">
+                <span>Yes</span>
+              </label>
+              <label class="prefs-toggle-btn">
+                <input type="radio" name="pref-fema" id="pref-fema-no" value="no" checked>
+                <span>No</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- SORT PREFERENCE -->
+        <div class="prefs-section">
+          <div class="prefs-section-title">Sort Preference</div>
+          <div class="prefs-radio-group">
+            <label class="prefs-radio-label">
+              <input type="radio" name="pref-sort" value="lowest_price_per_acre" checked>
+              Lowest Price/Acre
+            </label>
+            <label class="prefs-radio-label">
+              <input type="radio" name="pref-sort" value="highest_buildability">
+              Highest Buildability
+            </label>
+            <label class="prefs-radio-label">
+              <input type="radio" name="pref-sort" value="longest_dom">
+              Longest DOM
+            </label>
+          </div>
+        </div>
+
+        <!-- TARGET MARKETS -->
+        <div class="prefs-section">
+          <div class="prefs-section-title">Target Markets</div>
+          <div class="prefs-field-group">
+            <div class="prefs-label">Target States</div>
+            <input type="text" id="pref-target-states" class="prefs-input" placeholder="e.g. AR, OK" value="AR, OK" />
+          </div>
+          <div class="prefs-field-group">
+            <div class="prefs-label">
+              Target Counties
+              <span class="prefs-label-hint">Leave blank for all counties</span>
+            </div>
+            <input type="text" id="pref-target-counties" class="prefs-input" placeholder="e.g. Faulkner, Logan" />
+          </div>
+        </div>
+
+      </div>
+      <div id="prefs-modal-footer">
+        <button class="prefs-modal-btn secondary" onclick="resetPrefsToDefaults()">Reset to Defaults</button>
+        <button class="prefs-modal-btn primary" onclick="savePreferences()">Save Preferences</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="prefs-toast"></div>
 
   <!-- Toggle sidebar button -->
   <button id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">☰</button>
@@ -1798,6 +2151,113 @@ ${JSON.stringify(properties.map(p => ({
     };
     reader.readAsDataURL(file);
   });
+
+  // ══════════════════════════════════════════
+  // PREFERENCES
+  // ══════════════════════════════════════════
+  const PREFS_DEFAULTS = {
+    min_acres: 2,
+    max_acres: 20,
+    min_buildability: 70,
+    max_wetlands: 15,
+    min_road_frontage: 300,
+    min_dom: 0,
+    max_ppa: 25000,
+    include_fema: false,
+    sort_by: 'lowest_price_per_acre',
+    target_states: 'AR, OK',
+    target_counties: '',
+  };
+
+  async function loadPreferences() {
+    try {
+      const res = await fetch('/.netlify/functions/save-preferences');
+      const raw = await res.text();
+      const data = JSON.parse(raw);
+      return data ? { ...PREFS_DEFAULTS, ...data } : PREFS_DEFAULTS;
+    } catch (e) {
+      console.warn('[prefs] load failed:', e.message);
+      return PREFS_DEFAULTS;
+    }
+  }
+
+  async function openPrefsModal() {
+    document.getElementById('prefs-modal-backdrop').classList.add('open');
+    const prefs = await loadPreferences();
+    populatePrefsForm(prefs);
+  }
+
+  function closePrefsModal() {
+    document.getElementById('prefs-modal-backdrop').classList.remove('open');
+  }
+
+  function closePrefsModalOnBackdrop(e) {
+    if (e.target === document.getElementById('prefs-modal-backdrop')) closePrefsModal();
+  }
+
+  function populatePrefsForm(prefs) {
+    const p = { ...PREFS_DEFAULTS, ...prefs };
+    document.getElementById('pref-min-acres').value         = p.min_acres;
+    document.getElementById('pref-max-acres').value         = p.max_acres;
+    document.getElementById('pref-min-buildability').value  = p.min_buildability;
+    document.getElementById('pref-min-buildability-val').textContent = p.min_buildability + '%';
+    document.getElementById('pref-max-wetlands').value      = p.max_wetlands;
+    document.getElementById('pref-max-wetlands-val').textContent = p.max_wetlands + '%';
+    document.getElementById('pref-min-road-frontage').value = p.min_road_frontage;
+    document.getElementById('pref-min-dom').value           = p.min_dom;
+    document.getElementById('pref-max-ppa').value           = p.max_ppa;
+    document.getElementById('pref-fema-yes').checked        = !!p.include_fema;
+    document.getElementById('pref-fema-no').checked         = !p.include_fema;
+    const sortRadio = document.querySelector(`input[name="pref-sort"][value="${p.sort_by}"]`);
+    if (sortRadio) sortRadio.checked = true;
+    document.getElementById('pref-target-states').value    = p.target_states  || '';
+    document.getElementById('pref-target-counties').value  = p.target_counties || '';
+  }
+
+  function resetPrefsToDefaults() {
+    populatePrefsForm(PREFS_DEFAULTS);
+  }
+
+  async function savePreferences() {
+    const prefs = {
+      min_acres:         parseFloat(document.getElementById('pref-min-acres').value)         || 2,
+      max_acres:         parseFloat(document.getElementById('pref-max-acres').value)         || 20,
+      min_buildability:  parseInt(document.getElementById('pref-min-buildability').value)    || 70,
+      max_wetlands:      parseInt(document.getElementById('pref-max-wetlands').value)        || 15,
+      min_road_frontage: parseInt(document.getElementById('pref-min-road-frontage').value)   || 300,
+      min_dom:           parseInt(document.getElementById('pref-min-dom').value)             || 0,
+      max_ppa:           parseFloat(document.getElementById('pref-max-ppa').value)           || 25000,
+      include_fema:      document.getElementById('pref-fema-yes').checked,
+      sort_by:           document.querySelector('input[name="pref-sort"]:checked')?.value    || 'lowest_price_per_acre',
+      target_states:     document.getElementById('pref-target-states').value.trim(),
+      target_counties:   document.getElementById('pref-target-counties').value.trim(),
+    };
+
+    try {
+      const res = await fetch('/.netlify/functions/save-preferences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(prefs),
+      });
+      const raw = await res.text();
+      const data = JSON.parse(raw);
+      if (data && data.error) {
+        alert('Save failed: ' + data.error);
+        return;
+      }
+      showToast('Preferences saved.');
+      closePrefsModal();
+    } catch (e) {
+      alert('Network error: ' + e.message);
+    }
+  }
+
+  function showToast(msg) {
+    const toast = document.getElementById('prefs-toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2500);
+  }
 
   // ── Init: seed a conversation ID and populate sidebar ──
   currentConvId = 'conv_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);

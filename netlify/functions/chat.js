@@ -71,12 +71,14 @@ exports.handler = async (event) => {
     let kbRows = [];
     let properties = [];
     let marketData = [];
+    let prefsRow = null;
 
     if (sbUrl && sbKey) {
-      const [kbRes, propsRes, mdRes] = await Promise.allSettled([
+      const [kbRes, propsRes, mdRes, prefsRes] = await Promise.allSettled([
         fetch(`${sbUrl}/rest/v1/knowledge_base?select=*&order=category.asc`, { headers: sbHeaders }),
         fetch(`${sbUrl}/rest/v1/properties?select=*&order=created_at.desc`, { headers: sbHeaders }),
         fetch(`${sbUrl}/rest/v1/market_data?select=*&order=state.asc,county.asc`, { headers: sbHeaders }),
+        fetch(`${sbUrl}/rest/v1/user_preferences?user_id=eq.reece&limit=1`, { headers: sbHeaders }),
       ]);
 
       if (kbRes.status === 'fulfilled' && kbRes.value.ok) {
@@ -103,7 +105,29 @@ exports.handler = async (event) => {
       } else {
         console.warn('[chat] Market data fetch rejected — reason:', mdRes.reason?.message || mdRes.reason || '(none)');
       }
+
+      if (prefsRes.status === 'fulfilled' && prefsRes.value.ok) {
+        try {
+          const prefsArr = await prefsRes.value.json();
+          if (Array.isArray(prefsArr) && prefsArr.length) prefsRow = prefsArr[0];
+        } catch {}
+      }
     }
+
+    // ── User preferences (with defaults) ──
+    const userPrefs = {
+      min_acres:         prefsRow?.min_acres         ?? 2,
+      max_acres:         prefsRow?.max_acres         ?? 20,
+      min_buildability:  prefsRow?.min_buildability  ?? 70,
+      max_wetlands:      prefsRow?.max_wetlands       ?? 15,
+      min_road_frontage: prefsRow?.min_road_frontage  ?? 300,
+      min_dom:           prefsRow?.min_dom            ?? 0,
+      max_ppa:           prefsRow?.max_ppa            ?? 25000,
+      include_fema:      prefsRow?.include_fema       ?? false,
+      sort_by:           prefsRow?.sort_by            ?? 'lowest_price_per_acre',
+      target_states:     prefsRow?.target_states      ?? 'AR, OK',
+    };
+    console.log('[chat] userPrefs:', JSON.stringify(userPrefs));
 
     // ── Format knowledge base ──
     function formatKB(rows) {
@@ -133,22 +157,43 @@ exports.handler = async (event) => {
       }).join('\n');
     }
 
+    // ── State name → 2-letter abbreviation map ──
+    const STATE_ABBR = {
+      'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':'CA',
+      'colorado':'CO','connecticut':'CT','delaware':'DE','florida':'FL','georgia':'GA',
+      'hawaii':'HI','idaho':'ID','illinois':'IL','indiana':'IN','iowa':'IA',
+      'kansas':'KS','kentucky':'KY','louisiana':'LA','maine':'ME','maryland':'MD',
+      'massachusetts':'MA','michigan':'MI','minnesota':'MN','mississippi':'MS',
+      'missouri':'MO','montana':'MT','nebraska':'NE','nevada':'NV','new hampshire':'NH',
+      'new jersey':'NJ','new mexico':'NM','new york':'NY','north carolina':'NC',
+      'north dakota':'ND','ohio':'OH','oklahoma':'OK','oregon':'OR','pennsylvania':'PA',
+      'rhode island':'RI','south carolina':'SC','south dakota':'SD','tennessee':'TN',
+      'texas':'TX','utah':'UT','vermont':'VT','virginia':'VA','washington':'WA',
+      'west virginia':'WV','wisconsin':'WI','wyoming':'WY',
+    };
+    function toStateAbbr(s) {
+      if (!s) return '';
+      if (/^[A-Z]{2}$/.test(s.trim())) return s.trim(); // already abbreviated
+      return (STATE_ABBR[s.trim().toLowerCase()] || s.trim()).toUpperCase();
+    }
+
     // ── Format market data ──
     function formatMarketData(rows) {
       if (!Array.isArray(rows) || !rows.length) return '(none)';
       // Group by state → county
       const byState = {};
       rows.forEach(r => {
-        const st = r.state || 'Unknown';
+        const st = toStateAbbr(r.state) || 'Unknown';
         const geo = r.county || r.city || r.zip_code || r.geography_type || '—';
         if (!byState[st]) byState[st] = [];
         const parts = [geo];
-        if (r.median_ppa != null)  parts.push(`PPA: $${r.median_ppa}/ac`);
-        if (r.sales_count != null) parts.push(`Sales: ${r.sales_count}`);
-        if (r.median_dom != null)  parts.push(`DOM: ${r.median_dom}d`);
-        if (r.trend)               parts.push(`Trend: ${r.trend}`);
-        if (r.tier)                parts.push(`Tier: ${r.tier}`);
-        if (r.notes)               parts.push(`Notes: ${r.notes}`);
+        if (r.median_ppa != null)   parts.push(`PPA: $${r.median_ppa}/ac`);
+        if (r.median_acres != null) parts.push(`MedianAcres: ${r.median_acres}`);
+        if (r.sales_count != null)  parts.push(`Sales: ${r.sales_count}`);
+        if (r.median_dom != null)   parts.push(`DOM: ${r.median_dom}d`);
+        if (r.trend)                parts.push(`Trend: ${r.trend}`);
+        if (r.tier)                 parts.push(`Tier: ${r.tier}`);
+        if (r.notes)                parts.push(`Notes: ${r.notes}`);
         byState[st].push('  ' + parts.join(' | '));
       });
       return Object.entries(byState)
@@ -156,8 +201,37 @@ exports.handler = async (event) => {
         .join('\n\n');
     }
 
+    // ── Pre-compute price ceilings (median_ppa × median_acres × 2) ──
+    function buildPriceCeilingTable(rows) {
+      if (!Array.isArray(rows) || !rows.length) return '(none — use $100,000 default for all counties)';
+      const lines = [];
+      rows.forEach(r => {
+        const county = r.county || r.city || r.geography_type;
+        if (!county) return;
+        const st = toStateAbbr(r.state);
+        if (r.median_ppa != null && r.median_acres != null) {
+          const ceiling = Math.round(r.median_ppa * r.median_acres * 2);
+          lines.push(`  ${county}, ${st}: $${ceiling.toLocaleString()} (${r.median_ppa}/ac × ${r.median_acres}ac × 2)`);
+        } else {
+          lines.push(`  ${county}, ${st}: $100,000 (default — missing PPA or median acres)`);
+        }
+      });
+      return lines.length ? lines.join('\n') : '(none — use $100,000 default for all counties)';
+    }
+
+    // ── Preferences-derived prompt variables ──
+    const sortDisplayMap = {
+      'lowest_price_per_acre': 'lowest price/acre',
+      'highest_buildability': 'highest buildability',
+      'longest_dom': 'longest DOM',
+    };
+    const sortDisplay = sortDisplayMap[userPrefs.sort_by] || userPrefs.sort_by || 'lowest price/acre';
+    const domFlag = userPrefs.min_dom > 0 ? userPrefs.min_dom : 60;
+    const femaLine = userPrefs.include_fema ? '' : ', no FEMA';
+    const slopeRisk = 100 - userPrefs.min_buildability;
+
     // ── Build dynamic system prompt ──
-    const system = `DATA ACCESS STATUS: Knowledge base rows loaded: ${kbRows.length}. Properties loaded: ${properties.length}. Market data rows loaded: ${marketData.length}.
+    const system = `DATA ACCESS STATUS: Knowledge base rows loaded: ${kbRows.length}. Properties loaded: ${properties.length}. Market data rows loaded: ${marketData.length}. Preferences: ${prefsRow ? 'loaded' : 'using defaults'}.
 
 You are the Coldwater Assistant — permanent AI consigliere for Reece Smith, owner of Coldwater Property Group LLC. The knowledge base below contains his exact business rules — these always override your general training.
 
@@ -174,7 +248,32 @@ RULES:
 - Knowledge base always wins over general real estate knowledge
 - Opening offer = ARV x 0.35, MAO = ARV x 0.50, never exceed MAO
 - Raw vacant land only — never mention repair costs or rehab
-- Be direct and specific`;
+- Be direct and specific
+
+LAND PORTAL PROMPTS — GENERATED FROM YOUR SAVED PREFERENCES:
+Current preferences: Acreage ${userPrefs.min_acres}-${userPrefs.max_acres} acres, Min buildability ${userPrefs.min_buildability}%, Max wetlands ${userPrefs.max_wetlands}%, Min road frontage ${userPrefs.min_road_frontage}ft, Min DOM ${userPrefs.min_dom}, Max PPA $${userPrefs.max_ppa}, FEMA ${userPrefs.include_fema ? 'Yes' : 'No'}, Sort by ${sortDisplay}
+
+When Reece asks for active listings in any county, respond with ONLY this prompt — nothing else:
+"Active MLS listings, [COUNTY] County [STATE ABBR], vacant land, ${userPrefs.min_acres}-${userPrefs.max_acres} acres, under $[PRICE CEILING]${femaLine}, not landlocked, no structures, no commercial. Show: address, APN, acres, list price, LP estimate, price/acre, DOM, MLS ID, buildability%, road frontage ft, wetlands Y/N, FEMA Y/N. Sort ${sortDisplay}. Flag: price cuts 90 days, DOM ${domFlag}+."
+
+When Reece asks for market analysis on any county, respond with ONLY this prompt — nothing else:
+"[COUNTY] County [STATE ABBR], vacant land sold 12 months, ${userPrefs.min_acres}-${userPrefs.max_acres} acres, exclude waterfront structures utilities paved roads. Show: median PPA, sales count, median DOM, 25th/50th/75th percentile PPA."
+
+PRE-CALCULATED PRICE CEILINGS (median_ppa × median_acres × 2) — use exact values below:
+${buildPriceCeilingTable(marketData)}
+
+RULES FOR THESE PROMPTS:
+- Never add extra fields
+- Never change the format
+- Never add commentary before or after
+- Never create a custom prompt
+- Look up the county in PRE-CALCULATED PRICE CEILINGS above and use that exact dollar value
+- If the county is not listed above, use $100,000 as the default price ceiling
+- STATE ABBR must always be the 2-letter USPS abbreviation — AR not Arkansas, OK not Oklahoma, TX not Texas, FL not Florida
+- Keep total prompt under 400 characters always
+
+OPPORTUNITY SCORING — AUTOMATIC:
+When Reece pastes a Land Portal listing table into the conversation, immediately score every property without being asked. Use LP estimate as ARV if provided. If not provided use county median PPA x acres. Calculate gap (ARV minus list price) and score (gap divided by list price as percentage). Rate as: HOT = list price below 50% ARV, GOOD = 50-65%, MARGINAL = 65-80%, PASS = above 80%. Add risk flags: SLOPE RISK = buildability under ${slopeRisk}%, ACCESS RISK = road frontage under ${userPrefs.min_road_frontage}ft, WETLANDS RISK = wetlands over ${userPrefs.max_wetlands}%. Present ranked table sorted by score highest first with columns: Address, Acres, List Price, LP Estimate, Gap, Score, Rating, Flags. Then identify top 2-3 targets and give the Land Portal parcel detail prompt for each one.`;
 
     console.log('System prompt length:', system.length, 'KB rows:', kbRows.length, 'Market data rows:', marketData.length);
 
@@ -204,8 +303,26 @@ RULES:
 
     let text = data.content?.[0]?.text || '';
 
-    // ── Lead auto-save (blocks response — prepends status line) ──
+    // ── Lead email detection (declared early so CRM check can skip it) ──
     const isLeadEmail = /Event:\s*(SMS|call)/i.test(lastText) || lastText.includes('letsgo@leadminingpros');
+
+    // ── CRM command detection (blocks response — prepends status line) ──
+    const CRM_COMMAND_RE = /\b(archive\s+it|mark\s+as\s+(dead|not\s+now)|update\s+(the\s+)?status|it\s+sold|it\s+closed|remove\s+from\s+pipeline|promote\s+to\s+acquisitions?|update\s+(the\s+)?offer|change\s+(the\s+)?status)\b/i;
+    if (!isLeadEmail && CRM_COMMAND_RE.test(lastText)) {
+      try {
+        const crmResult = await executeCrmCommand(lastText, sbUrl, sbKey);
+        if (crmResult.ok) {
+          text = `✅ CRM updated — ${crmResult.summary}\n\n${text}`;
+        } else {
+          text = `⚠️ Could not find that property in the CRM — please update manually in REI Razor.\n\n${text}`;
+          console.warn('[crm-cmd] failed:', crmResult.error);
+        }
+      } catch (e) {
+        console.warn('[crm-cmd] exception:', e.message);
+      }
+    }
+
+    // ── Lead auto-save (blocks response — prepends status line) ──
     if (isLeadEmail) {
       const saveResult = await saveLeadFromEmail(lastText, sbUrl, sbKey);
       if (saveResult.ok) {
@@ -492,6 +609,112 @@ async function extractAndSaveKnowledge(messages, assistantReply) {
 
   await batchUpsertKB(extracted);
   console.log('[kb-extract] saved', extracted.length, 'entries');
+}
+
+// ── CRM command parser ────────────────────────────────────────────────────────
+async function parseCrmCommand(userText) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      system: 'You are a CRM command parser. Extract the intended CRM action from this message and return a JSON object only, no other text. Fields: action (archive, status_update, offer_update, delete), property_search_term (name, address, or county to find the property), new_status (if status update), new_offer_amount (if offer update), archive_reason (Dead or Not Now if archiving), notes (any additional context to log). If you cannot determine the action return null.',
+      messages: [{ role: 'user', content: userText }],
+    }),
+  });
+  if (!res.ok) return null;
+  const result = await res.json();
+  const raw = result.content?.[0]?.text || '';
+  const match = raw.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try { return JSON.parse(match[0]); } catch { return null; }
+}
+
+// ── CRM command executor ──────────────────────────────────────────────────────
+async function executeCrmCommand(userText, sbUrl, sbKey) {
+  if (!sbUrl || !sbKey) return { ok: false, error: 'Supabase not configured' };
+
+  const cmd = await parseCrmCommand(userText);
+  if (!cmd || !cmd.action || !cmd.property_search_term) {
+    return { ok: false, error: 'Could not parse CRM command' };
+  }
+  console.log('[crm-cmd] parsed:', JSON.stringify(cmd));
+
+  const SB_JSON = {
+    'apikey': sbKey,
+    'Authorization': `Bearer ${sbKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  // ── Search for matching property ──
+  const term = encodeURIComponent(`*${cmd.property_search_term}*`);
+  const searchUrl = `${sbUrl}/rest/v1/properties?or=(address.ilike.${term},first_name.ilike.${term},last_name.ilike.${term},county.ilike.${term})&limit=5`;
+
+  const searchRes = await fetch(searchUrl, {
+    headers: { 'apikey': sbKey, 'Authorization': `Bearer ${sbKey}` },
+  });
+  if (!searchRes.ok) {
+    const body = await searchRes.text().catch(() => '');
+    console.warn('[crm-cmd] search failed:', searchRes.status, body.slice(0, 200));
+    return { ok: false, error: `Search failed: ${searchRes.status}` };
+  }
+  const matches = await searchRes.json();
+  if (!Array.isArray(matches) || !matches.length) {
+    return { ok: false, error: 'No matching property found' };
+  }
+
+  const prop = matches[0];
+  const propId = prop.id;
+  const propAddr = [prop.address, prop.county, prop.state].filter(Boolean).join(', ') || propId;
+  const propName = [prop.first_name, prop.last_name].filter(Boolean).join(' ');
+
+  // ── Build patch payload and log entry ──
+  let patch = {};
+  let logEntry = '';
+
+  if (cmd.action === 'archive') {
+    const reason = (cmd.archive_reason || '').toLowerCase().includes('not now') ? 'Not Now' : 'Dead';
+    patch = { archived: true, status: reason };
+    logEntry = `Archived via Coldwater Assistant (${reason})${cmd.notes ? ': ' + cmd.notes : ''}`;
+  } else if (cmd.action === 'status_update') {
+    if (!cmd.new_status) return { ok: false, error: 'No new_status provided' };
+    patch = { status: cmd.new_status };
+    logEntry = `Status updated to "${cmd.new_status}" via Coldwater Assistant${cmd.notes ? ': ' + cmd.notes : ''}`;
+  } else if (cmd.action === 'offer_update') {
+    if (cmd.new_offer_amount) patch.offer_amount = cmd.new_offer_amount;
+    if (cmd.notes) patch.offer_status = cmd.notes;
+    if (!Object.keys(patch).length) return { ok: false, error: 'No offer fields to update' };
+    logEntry = `Offer updated via Coldwater Assistant${cmd.new_offer_amount ? ': $' + cmd.new_offer_amount : ''}${cmd.notes ? ' — ' + cmd.notes : ''}`;
+  } else {
+    return { ok: false, error: `Unsupported action: ${cmd.action}` };
+  }
+
+  // ── Execute PATCH ──
+  const patchRes = await fetch(`${sbUrl}/rest/v1/properties?id=eq.${propId}`, {
+    method: 'PATCH',
+    headers: { ...SB_JSON, 'Prefer': 'return=minimal' },
+    body: JSON.stringify(patch),
+  });
+  if (!patchRes.ok) {
+    const body = await patchRes.text().catch(() => '');
+    console.warn('[crm-cmd] PATCH failed:', patchRes.status, body.slice(0, 200));
+    return { ok: false, error: `PATCH failed: ${patchRes.status}` };
+  }
+
+  // ── Write activity log (fire-and-forget) ──
+  fetch(`${sbUrl}/rest/v1/activity_log`, {
+    method: 'POST',
+    headers: { ...SB_JSON, 'Prefer': 'return=minimal' },
+    body: JSON.stringify({ property_id: propId, entry: logEntry }),
+  }).catch(e => console.warn('[crm-cmd] activity_log insert failed:', e.message));
+
+  const summary = `${propName ? propName + ' — ' : ''}${propAddr} — ${cmd.action.replace('_', ' ')}`;
+  return { ok: true, summary };
 }
 
 // ── Batch upsert to knowledge_base ───────────────────────────────────────────
