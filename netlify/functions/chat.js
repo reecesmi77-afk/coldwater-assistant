@@ -70,11 +70,13 @@ exports.handler = async (event) => {
 
     let kbRows = [];
     let properties = [];
+    let marketData = [];
 
     if (sbUrl && sbKey) {
-      const [kbRes, propsRes] = await Promise.allSettled([
+      const [kbRes, propsRes, mdRes] = await Promise.allSettled([
         fetch(`${sbUrl}/rest/v1/knowledge_base?select=*&order=category.asc`, { headers: sbHeaders }),
         fetch(`${sbUrl}/rest/v1/properties?select=*&archived=eq.false&order=created_at.desc`, { headers: sbHeaders }),
+        fetch(`${sbUrl}/rest/v1/market_data?select=*&order=state.asc,county.asc`, { headers: sbHeaders }),
       ]);
 
       if (kbRes.status === 'fulfilled' && kbRes.value.ok) {
@@ -87,6 +89,12 @@ exports.handler = async (event) => {
         try { properties = await propsRes.value.json(); } catch {}
       } else {
         console.warn('[chat] Properties fetch failed:', propsRes.reason || propsRes.value?.status);
+      }
+
+      if (mdRes.status === 'fulfilled' && mdRes.value.ok) {
+        try { marketData = await mdRes.value.json(); } catch {}
+      } else {
+        console.warn('[chat] Market data fetch failed:', mdRes.reason || mdRes.value?.status);
       }
     }
 
@@ -118,6 +126,29 @@ exports.handler = async (event) => {
       }).join('\n');
     }
 
+    // ── Format market data ──
+    function formatMarketData(rows) {
+      if (!Array.isArray(rows) || !rows.length) return '(none)';
+      // Group by state → county
+      const byState = {};
+      rows.forEach(r => {
+        const st = r.state || 'Unknown';
+        const geo = r.county || r.city || r.zip_code || r.geography_type || '—';
+        if (!byState[st]) byState[st] = [];
+        const parts = [geo];
+        if (r.median_ppa != null)  parts.push(`PPA: $${r.median_ppa}/ac`);
+        if (r.sales_count != null) parts.push(`Sales: ${r.sales_count}`);
+        if (r.median_dom != null)  parts.push(`DOM: ${r.median_dom}d`);
+        if (r.trend)               parts.push(`Trend: ${r.trend}`);
+        if (r.tier)                parts.push(`Tier: ${r.tier}`);
+        if (r.notes)               parts.push(`Notes: ${r.notes}`);
+        byState[st].push('  ' + parts.join(' | '));
+      });
+      return Object.entries(byState)
+        .map(([state, lines]) => `${state}:\n${lines.join('\n')}`)
+        .join('\n\n');
+    }
+
     // ── Build dynamic system prompt ──
     const system = `You are the Coldwater Assistant — permanent AI consigliere for Reece Smith, owner of Coldwater Property Group LLC. The knowledge base below contains his exact business rules — these always override your general training.
 
@@ -126,6 +157,9 @@ ${formatKB(kbRows)}
 
 ACTIVE PIPELINE:
 ${formatProperties(properties)}
+
+MARKET DATA:
+${formatMarketData(marketData)}
 
 RULES:
 - Knowledge base always wins over general real estate knowledge
