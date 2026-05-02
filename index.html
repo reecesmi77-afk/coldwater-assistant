@@ -1278,9 +1278,27 @@
           </div>
         </div>
 
+        <!-- LAND PORTAL OUTPUT -->
+        <div id="lp-output-section" style="display:none;">
+          <div class="prefs-section-title" style="margin-top:4px;">Generated Land Portal Prompts</div>
+
+          <div class="prefs-field-group">
+            <div class="prefs-label" style="margin-bottom:6px;">📍 Filtered Search Settings — apply these in Land Portal</div>
+            <textarea id="lp-output-1" class="prefs-input" rows="8" readonly style="resize:none;font-size:12px;line-height:1.6;font-family:var(--mono);white-space:pre;"></textarea>
+            <button onclick="copyLpOutput('lp-output-1', this)" style="margin-top:6px;padding:6px 14px;background:var(--teal);color:#0d0d0d;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;width:100%;">Copy</button>
+          </div>
+
+          <div class="prefs-field-group" style="margin-top:12px;">
+            <div class="prefs-label" style="margin-bottom:6px;">🤖 Intelligence Bot — for comp validation</div>
+            <textarea id="lp-output-2" class="prefs-input" rows="5" readonly style="resize:none;font-size:12px;line-height:1.6;font-family:var(--mono);white-space:pre-wrap;"></textarea>
+            <button onclick="copyLpOutput('lp-output-2', this)" style="margin-top:6px;padding:6px 14px;background:var(--teal);color:#0d0d0d;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;width:100%;">Copy</button>
+          </div>
+        </div>
+
       </div>
       <div id="prefs-modal-footer">
         <button class="prefs-modal-btn secondary" onclick="resetPrefsToDefaults()">Reset to Defaults</button>
+        <button class="prefs-modal-btn secondary" onclick="generateLandPortalPrompts()" style="border-color:var(--teal-border);color:var(--teal);">🗺️ Generate Prompt</button>
         <button class="prefs-modal-btn primary" onclick="savePreferences()">Save Preferences</button>
       </div>
     </div>
@@ -2250,6 +2268,142 @@ ${JSON.stringify(properties.map(p => ({
     } catch (e) {
       alert('Network error: ' + e.message);
     }
+  }
+
+  async function generateLandPortalPrompts() {
+    // Read current form values
+    const minAcres        = parseFloat(document.getElementById('pref-min-acres').value)        || PREFS_DEFAULTS.min_acres;
+    const maxAcres        = parseFloat(document.getElementById('pref-max-acres').value)        || PREFS_DEFAULTS.max_acres;
+    const minBuild        = parseInt(document.getElementById('pref-min-buildability').value)   || PREFS_DEFAULTS.min_buildability;
+    const maxWetlands     = parseInt(document.getElementById('pref-max-wetlands').value)       ?? PREFS_DEFAULTS.max_wetlands;
+    const minFrontage     = parseInt(document.getElementById('pref-min-road-frontage').value)  || PREFS_DEFAULTS.min_road_frontage;
+    const minDom          = parseInt(document.getElementById('pref-min-dom').value)            ?? PREFS_DEFAULTS.min_dom;
+    const maxPpa          = parseInt(document.getElementById('pref-max-ppa').value)            || PREFS_DEFAULTS.max_ppa;
+    const includeFema     = document.querySelector('input[name="pref-fema"]:checked')?.value === 'yes';
+    const sortBy          = document.querySelector('input[name="pref-sort"]:checked')?.value  || PREFS_DEFAULTS.sort_by;
+    const targetStates    = (document.getElementById('pref-target-states').value || PREFS_DEFAULTS.target_states).trim();
+    const targetCounties  = (document.getElementById('pref-target-counties').value || '').trim();
+
+    // Sort display label
+    const sortLabels = {
+      'lowest_price_per_acre': 'Price per Acre (Low→High)',
+      'highest_buildability':  'Buildability (High→Low)',
+      'longest_dom':           'Days on Market (High→Low)',
+    };
+    const sortLabel = sortLabels[sortBy] || sortBy;
+
+    // DOM flag for "stale" threshold
+    const domFlag = minDom > 0 ? minDom : 60;
+
+    // FEMA filter line
+    const femaLine = includeFema ? '' : ', No FEMA flood zone';
+
+    // --- Fetch market_data to compute price ceiling ---
+    let priceCeiling = 100000;
+    let ceilingNote  = '(default — no market data found)';
+    try {
+      // Build county filter if target_counties is set
+      let mdUrl = `${SUPABASE_URL}/rest/v1/market_data?select=county,state,median_ppa,median_acres`;
+      if (targetCounties) {
+        // Use the first county listed
+        const firstCounty = targetCounties.split(/[,\n]/)[0].trim();
+        mdUrl += `&county=ilike.${encodeURIComponent('%' + firstCounty + '%')}`;
+      }
+      const mdRes = await fetch(mdUrl, {
+        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+      });
+      if (mdRes.ok) {
+        const rows = await mdRes.json();
+        if (Array.isArray(rows) && rows.length) {
+          // Use first matching row with both fields
+          const row = rows.find(r => r.median_ppa != null && r.median_acres != null);
+          if (row) {
+            priceCeiling = Math.round(row.median_ppa * row.median_acres * 2);
+            ceilingNote  = `${row.median_ppa.toLocaleString()}/ac × ${row.median_acres}ac × 2 = $${priceCeiling.toLocaleString()}`;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[generateLandPortalPrompts] market_data fetch failed:', e.message);
+    }
+
+    const stateDisplay   = targetStates || 'AR, OK';
+    const countyDisplay  = targetCounties ? `${targetCounties} County` : '[Any County]';
+
+    // ── Output 1: Filtered Search Settings ──
+    const output1 = [
+      `📍 LAND PORTAL — FILTERED SEARCH SETTINGS`,
+      `─────────────────────────────────────────`,
+      `State:              ${stateDisplay}`,
+      `County:             ${countyDisplay}`,
+      ``,
+      `ACREAGE`,
+      `  Min: ${minAcres} acres`,
+      `  Max: ${maxAcres} acres`,
+      ``,
+      `MLS FILTERS`,
+      `  Property Type:    Vacant Land`,
+      `  Status:           Active`,
+      `  Min DOM:          ${minDom > 0 ? minDom + ' days' : 'Any'}`,
+      `  Flag stale at:    ${domFlag}+ days`,
+      ``,
+      `PRICE`,
+      `  Max Price/Acre:   $${maxPpa.toLocaleString()}`,
+      `  Price Ceiling:    $${priceCeiling.toLocaleString()} ${ceilingNote}`,
+      ``,
+      `PROPERTY FILTERS`,
+      `  Min Buildability: ${minBuild}%`,
+      `  Max Wetlands:     ${maxWetlands}%`,
+      `  Min Road Frontage:${minFrontage} ft`,
+      `  FEMA Flood Zone:  ${includeFema ? 'Include' : 'Exclude'}`,
+      `  Structures:       None`,
+      `  Access:           Not landlocked`,
+      `  Use:              No commercial`,
+      ``,
+      `SORT BY`,
+      `  ${sortLabel}`,
+      ``,
+      `DISPLAY COLUMNS`,
+      `  Address, APN, Acres, List Price, LP Est., Price/Acre,`,
+      `  DOM, MLS ID, Buildability%, Road Frontage, Wetlands Y/N, FEMA Y/N`,
+    ].join('\n');
+
+    // ── Output 2: Intelligence Bot Prompt ──
+    const output2 = [
+      `Active MLS listings, ${countyDisplay.replace(' County', ' County')} ${stateDisplay.split(/[,\s]+/)[0]},`,
+      `vacant land, ${minAcres}-${maxAcres} acres, under $${priceCeiling.toLocaleString()}${femaLine},`,
+      `not landlocked, no structures, no commercial.`,
+      `Show: address, APN, acres, list price, LP estimate, price/acre, DOM, MLS ID,`,
+      `buildability%, road frontage ft, wetlands Y/N, FEMA Y/N.`,
+      `Sort ${sortLabel.toLowerCase()}.`,
+      `Flag: price cuts last 90 days, DOM ${domFlag}+.`,
+    ].join('\n');
+
+    // Populate textareas
+    document.getElementById('lp-output-1').value = output1;
+    document.getElementById('lp-output-2').value = output2;
+
+    // Show output section and scroll into view
+    const section = document.getElementById('lp-output-section');
+    section.style.display = 'block';
+    section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function copyLpOutput(id, btn) {
+    const ta = document.getElementById(id);
+    if (!ta) return;
+    navigator.clipboard.writeText(ta.value).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = '✅ Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 2000);
+    }).catch(() => {
+      // Fallback for non-https / older browsers
+      ta.select();
+      document.execCommand('copy');
+      const orig = btn.textContent;
+      btn.textContent = '✅ Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 2000);
+    });
   }
 
   function showToast(msg) {
