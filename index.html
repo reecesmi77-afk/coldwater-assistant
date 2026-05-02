@@ -1229,6 +1229,11 @@
           </div>
 
           <div class="prefs-field-group">
+            <div class="prefs-label">Price Ceiling ($)</div>
+            <input type="number" id="pref-price-ceiling" class="prefs-input" min="0" step="1000" placeholder="e.g. 126000" />
+          </div>
+
+          <div class="prefs-field-group">
             <div class="prefs-label" style="margin-bottom:6px">Include FEMA Flood Zones</div>
             <div class="prefs-toggle">
               <label class="prefs-toggle-btn">
@@ -2181,6 +2186,7 @@ ${JSON.stringify(properties.map(p => ({
     min_road_frontage: 300,
     min_dom: 0,
     max_ppa: 25000,
+    price_ceiling: null,
     include_fema: false,
     sort_by: 'lowest_price_per_acre',
     target_states: 'AR, OK',
@@ -2224,6 +2230,7 @@ ${JSON.stringify(properties.map(p => ({
     document.getElementById('pref-min-road-frontage').value = p.min_road_frontage;
     document.getElementById('pref-min-dom').value           = p.min_dom;
     document.getElementById('pref-max-ppa').value           = p.max_ppa;
+    document.getElementById('pref-price-ceiling').value    = p.price_ceiling != null ? p.price_ceiling : '';
     document.getElementById('pref-fema-yes').checked        = !!p.include_fema;
     document.getElementById('pref-fema-no').checked         = !p.include_fema;
     const sortRadio = document.querySelector(`input[name="pref-sort"][value="${p.sort_by}"]`);
@@ -2245,6 +2252,7 @@ ${JSON.stringify(properties.map(p => ({
       min_road_frontage: parseInt(document.getElementById('pref-min-road-frontage').value)   || 300,
       min_dom:           parseInt(document.getElementById('pref-min-dom').value)             || 0,
       max_ppa:           parseFloat(document.getElementById('pref-max-ppa').value)           || 25000,
+      price_ceiling:     document.getElementById('pref-price-ceiling').value !== '' ? parseFloat(document.getElementById('pref-price-ceiling').value) : null,
       include_fema:      document.getElementById('pref-fema-yes').checked,
       sort_by:           document.querySelector('input[name="pref-sort"]:checked')?.value    || 'lowest_price_per_acre',
       target_states:     document.getElementById('pref-target-states').value.trim(),
@@ -2279,6 +2287,7 @@ ${JSON.stringify(properties.map(p => ({
     const minFrontage     = parseInt(document.getElementById('pref-min-road-frontage').value)  || PREFS_DEFAULTS.min_road_frontage;
     const minDom          = parseInt(document.getElementById('pref-min-dom').value)            ?? PREFS_DEFAULTS.min_dom;
     const maxPpa          = parseInt(document.getElementById('pref-max-ppa').value)            || PREFS_DEFAULTS.max_ppa;
+    const savedCeiling    = document.getElementById('pref-price-ceiling').value.trim();
     const includeFema     = document.querySelector('input[name="pref-fema"]:checked')?.value === 'yes';
     const sortBy          = document.querySelector('input[name="pref-sort"]:checked')?.value  || PREFS_DEFAULTS.sort_by;
     const targetStates    = (document.getElementById('pref-target-states').value || PREFS_DEFAULTS.target_states).trim();
@@ -2298,33 +2307,18 @@ ${JSON.stringify(properties.map(p => ({
     // FEMA filter line
     const femaLine = includeFema ? '' : ', No FEMA flood zone';
 
-    // --- Fetch market_data to compute price ceiling ---
-    let priceCeiling = 100000;
-    let ceilingNote  = '(default — no market data found)';
-    try {
-      // Build county filter if target_counties is set
-      let mdUrl = `${SUPABASE_URL}/rest/v1/market_data?select=county,state,median_ppa,median_acres`;
-      if (targetCounties) {
-        // Use the first county listed
-        const firstCounty = targetCounties.split(/[,\n]/)[0].trim();
-        mdUrl += `&county=ilike.${encodeURIComponent('%' + firstCounty + '%')}`;
-      }
-      const mdRes = await fetch(mdUrl, {
-        headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
-      });
-      if (mdRes.ok) {
-        const rows = await mdRes.json();
-        if (Array.isArray(rows) && rows.length) {
-          // Use first matching row with both fields
-          const row = rows.find(r => r.median_ppa != null && r.median_acres != null);
-          if (row) {
-            priceCeiling = Math.round(row.median_ppa * row.median_acres * 2);
-            ceilingNote  = `${row.median_ppa.toLocaleString()}/ac × ${row.median_acres}ac × 2 = $${priceCeiling.toLocaleString()}`;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('[generateLandPortalPrompts] market_data fetch failed:', e.message);
+    // --- Determine price ceiling ---
+    let priceCeiling;
+    let ceilingNote;
+    if (savedCeiling !== '') {
+      // Use the manually entered value
+      priceCeiling = Math.round(parseFloat(savedCeiling));
+      ceilingNote  = '(manually set)';
+    } else {
+      // Fallback: max_ppa × avg_acres × 2
+      const avgAcres = (minAcres + maxAcres) / 2;
+      priceCeiling = Math.round(maxPpa * avgAcres * 2);
+      ceilingNote  = `$${maxPpa.toLocaleString()}/ac × ${avgAcres}ac × 2 = $${priceCeiling.toLocaleString()} (auto)`;
     }
 
     const stateDisplay   = targetStates || 'AR, OK';
